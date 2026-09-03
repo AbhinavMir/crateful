@@ -245,7 +245,7 @@ async function checkStatus() {
     }
   } catch (e) {
     el.className = "status err";
-    el.textContent = "Helper not running — start helper/run.sh";
+    el.textContent = "Helper not running — run ./install.sh";
   }
 }
 
