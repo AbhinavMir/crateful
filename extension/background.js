@@ -11,6 +11,51 @@ self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
 const OFFSCREEN_URL = "offscreen.html";
 
+// Chrome tears down the content script in every open tab when the extension is
+// reloaded or updated, and it does not put it back. Our own updater calls
+// chrome.runtime.reload(), which does not fire onInstalled, so the only signal
+// we can rely on is this worker starting up. Without this, every YouTube tab
+// the user already had open silently loses its download buttons.
+//
+// Ping each matching tab first: a live content script answers, and only a tab
+// whose script is missing or orphaned gets a fresh injection.
+const WATCH_MATCH = "*://www.youtube.com/watch*";
+
+async function hasLiveContentScript(tabId) {
+  try {
+    const resp = await chrome.tabs.sendMessage(tabId, { type: "crateful-ping" });
+    return resp?.alive === true;
+  } catch (_) {
+    // No receiving end: the script is absent or orphaned.
+    return false;
+  }
+}
+
+async function reinjectContentScript() {
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: WATCH_MATCH });
+  } catch (e) {
+    console.warn("[Crateful] could not list YouTube tabs", e);
+    return;
+  }
+  for (const tab of tabs) {
+    if (tab.id == null || tab.discarded) continue;
+    if (await hasLiveContentScript(tab.id)) continue;
+    try {
+      await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["content.css"] });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+    } catch (e) {
+      // A tab we cannot script into. Nothing to do about it.
+      console.warn("[Crateful] re-inject failed for tab", tab.id, e);
+    }
+  }
+}
+
+// Runs on every service-worker start, which covers a manual reload, an
+// update, and chrome.runtime.reload() from the in-app updater.
+reinjectContentScript();
+
 let offscreenReady = false;
 let readyWaiters = [];
 let creating = null;

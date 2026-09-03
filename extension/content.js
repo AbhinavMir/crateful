@@ -1,4 +1,15 @@
 (function () {
+  // The background worker re-injects this file after an extension reload, and
+  // Chrome may also have injected it already. Running twice would attach a
+  // second MutationObserver to the page, so bail out if we are already here.
+  if (window.__cratefulContentLoaded) return;
+  window.__cratefulContentLoaded = true;
+
+  // Lets the background worker tell a live script from an orphaned one.
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg?.type === "crateful-ping") sendResponse({ alive: true });
+  });
+
   const HELPER = "http://127.0.0.1:7531";
   const WRAP_ID = "ytd-dj-buttons";
   const SELECT_ID = "ytd-dj-model";
