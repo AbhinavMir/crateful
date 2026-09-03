@@ -3,6 +3,12 @@
   "name": "Crateful",
   "version": "0.12.1",
   "description": "Download YouTube audio as MP3 into AI-categorized DJ crates, tagged for Djay Pro.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": ["activeTab", "storage", "offscreen"],
   "host_permissions": [
     "http://127.0.0.1:7531/*",
@@ -22,6 +28,12 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Crateful"
+    "default_title": "Crateful",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   }
 }

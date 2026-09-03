@@ -1,5 +1,7 @@
 # Crateful
 
+<img src="extension/icons/icon-128.png" alt="" width="96" align="right">
+
 Download YouTube audio as MP3 (or video as MP4) into AI-categorized folders, then browse and play the library inside Chrome. Built for personal DJ practice with royalty-free content. Audio lands in `~/YTD_DJ/{genre}/{sub-genre}/` with ID3 tags, so Djay Pro or any tag-aware player can filter by genre. Video lands in `~/YTD_DJ_Video/`, a separate root, so a music-only library tool does not index it.
 
 > Personal-use tool. Do not use it to redistribute or perform copyrighted content. You are responsible for YouTube's Terms of Service and for copyright.
