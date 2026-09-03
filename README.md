@@ -8,8 +8,8 @@ Download YouTube audio as MP3 (or video as MP4) into AI-categorized folders, the
 
 ## What you get
 
-- A Chrome extension that adds **Download MP3** and **Download Video** buttons to YouTube watch pages.
-- A local Python helper (FastAPI) that runs yt-dlp and ffmpeg, asks an AI model to categorize each download, writes ID3 tags, and saves the file.
+- A Chrome extension that adds one **Download** button to YouTube watch pages, with a **⋮** menu for picking a folder yourself or grabbing the video.
+- A local Python helper (FastAPI) that runs yt-dlp and ffmpeg, asks an AI model to file each download, writes ID3 tags, and saves the file.
 - A file-explorer page with folder navigation, playback with resume, rename, move, delete, re-categorize, and reveal in Finder.
 - A popup player that keeps playing after you close the popup.
 
@@ -46,16 +46,17 @@ Then add your API key: click the Crateful icon, open **Settings**, pick a provid
 ## Use it
 
 1. Open a YouTube video.
-2. Click **Download MP3** or **Download Video** next to the Like button.
-3. The helper downloads the media, asks the model for a folder from the title, description, tags, and your existing folders, writes ID3 tags, and saves the file.
-4. Click the extension icon for the popup library, or **Open browser** for the full file explorer.
+2. Click **Download** next to the Like button. That grabs the audio and lets the AI file it.
+3. Click the **⋮** next to it when you want to choose. The menu lists your recent folders first, then all of them, with a filter box. Pick one and the track goes straight there with no AI call, so it costs nothing and returns faster. Switch to the **Video** tab in the same menu to download the video instead.
+4. Type a folder that does not exist yet and the menu offers to create it.
+5. Click the extension icon for the popup library, or **Open browser** for the full file explorer.
+
+Once a video is downloaded the button turns green. Click it again to show the file in Finder.
 
 Files are saved as:
 
 - `~/YTD_DJ/{genre}/{sub-genre}/{Artist - Title}.mp3`
 - `~/YTD_DJ_Video/{genre}/{sub-genre}/{Artist - Title}.mp4`
-
-The dropdown next to the download buttons overrides the model for one download. Use a cheap model for obvious tracks and a strong one when the metadata is thin.
 
 ## How it works
 
@@ -74,7 +75,13 @@ The dropdown next to the download buttons overrides the model for one download. 
                                    ~/YTD_DJ_Video/{genre}/{sub}/track.mp4
 ```
 
-For each download the helper sends the title, channel, duration, tags, categories, the first 2000 characters of the description, and your current folder list to the model. The model returns `{content_type, top_folder, sub_folder, artist, title, id3_genre}`. It prefers existing folders, so the library does not fragment. Podcasts go to `podcasts/{show}`, talks to `spoken/{topic}`, sound effects to `other/{bucket}`, and music to `{genre}/{sub-genre}`.
+For each download the helper sends the title, channel, duration, tags, categories, the first 2000 characters of the description, and your current folder list to the model. The model returns `{content_type, top_folder, sub_folder, artist, title, id3_genre, bpm, musical_key, confidence}`. Podcasts go to `podcasts/{show}`, talks to `spoken/{topic}`, sound effects to `other/{bucket}`, and music to `{genre}/{sub-genre}`.
+
+The prompt works hard against a fragmented library. The model gets your exact folder list and is told to reuse a folder rather than coin a near-duplicate, so `deep-house` and `deephouse` never end up side by side. It picks a top folder from a fixed genre vocabulary, keeps remix and edit credits in the title while stripping "(Official Video)" and its relatives, credits the original artist rather than the remixer, and drops featured guests. When the metadata is too thin to place a track it returns low confidence and the track lands in `unsorted/general` instead of a wrong genre, because a wrong folder costs more than an unsorted one.
+
+BPM and musical key are read out of the title or description when they are stated outright, never guessed, and written to the ID3 `TBPM` and `TKEY` tags that Djay Pro and Rekordbox read.
+
+Picking a folder from the **⋮** menu skips the model completely. Artist and title then come from the video metadata: yt-dlp's own music tags when the channel provides them, otherwise the title split on its dash with the usual upload noise stripped.
 
 Playback state lives in SQLite at `~/.ytd_dj/library.db`. It records position, completion, play count, and per-file metadata, which drives resume and the continue-listening list.
 
@@ -120,11 +127,12 @@ Logs go to `~/.ytd_dj/helper.log`.
 | GET | `/status` | health, dependency check, versions |
 | GET, PUT | `/config` | read and write settings |
 | POST | `/test-key` | check a provider key or the Ollama URL |
-| POST | `/download` | `{url, kind: audio\|video, model?}` |
+| POST | `/download` | `{url, kind: audio\|video, model?, folder?}` |
 | GET | `/check?url=` | is this video already downloaded |
 | GET | `/library?root=` | flat list of every file |
 | GET | `/browse?root=&path=` | one folder, with playback state |
-| GET | `/folders?root=` | every folder, for move pickers |
+| GET | `/folders?root=` | every folder plus recent ones, for pickers |
+| GET | `/path-presets` | common library destinations |
 | GET | `/file?root=&path=` | stream a file |
 | DELETE | `/file?root=&path=` | delete a file |
 | POST | `/file/rename` | rename in place |
@@ -154,6 +162,8 @@ Every `path` parameter is resolved against the configured root, so a path cannot
 | Categorization prompt | Settings page | built-in prompt |
 | Config directory | `YTD_DJ_HOME` env var | `~/.ytd_dj` |
 | Port | `YTD_DJ_PORT` env var | 7531 |
+
+The Settings page has one-click destinations for the library root: Desktop, Downloads, Music, Documents, or your home folder. Pick one and both roots move together. Existing files stay where they are, so move them yourself if you want them to follow.
 
 Changing the port also means editing `HELPER` in `extension/content.js`, `popup.js`, `library.js`, `settings.js`, and `offscreen.js`, plus `host_permissions` in `extension/manifest.json`.
 
@@ -186,6 +196,7 @@ cd helper
 - Categorization is only as good as the YouTube metadata. Fix folders by hand, or use **Re-categorize** after editing the prompt.
 - Each download costs one AI request. Ollama makes that free.
 - Downloads run one at a time and block until finished. There is no queue.
+- Picking a folder yourself skips the model, so the artist and title come from a plain text split of the video title. Expect the AI path to name files better.
 
 ## License
 

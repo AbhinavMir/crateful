@@ -145,6 +145,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return; // no response expected
   }
 
+  if (msg.type === "open-settings") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("settings.html") });
+    return;
+  }
+
   if (msg.type === "ensure-audio") {
     ensureOffscreen()
       .then(() => sendResponse({ ok: true }))

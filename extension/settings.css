@@ -166,3 +166,23 @@ input:focus, textarea:focus {
 .actions button:hover { background: #333; }
 
 .hidden { display: none !important; }
+
+/* Quick destinations for the library root. */
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.preset {
+  background: #242424;
+  color: #ccc;
+  border: 1px solid #3a3a3a;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.preset:hover { background: #303030; color: #fff; border-color: #4a4a4a; }
+.preset.active { background: #cc0000; border-color: #cc0000; color: #fff; }

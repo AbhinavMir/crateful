@@ -1,75 +1,7 @@
 import json
-from pathlib import Path
 
 import pytest
-from conftest import touch
-
-URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-INFO = {
-    "id": "dQw4w9WgXcQ",
-    "title": "Artist - Song (Official Video)",
-    "uploader": "ArtistVEVO",
-    "duration": 213,
-    "tags": ["pop"],
-    "categories": ["Music"],
-    "description": "desc",
-    "upload_date": "20240101",
-}
-
-
-class FakeYDL:
-    """Stands in for yt_dlp.YoutubeDL: returns fixed metadata and writes a stub file."""
-
-    fail_download = False
-
-    def __init__(self, opts):
-        self.opts = opts
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-    def extract_info(self, url, download=False):
-        return dict(INFO)
-
-    def download(self, urls):
-        if FakeYDL.fail_download:
-            raise RuntimeError("HTTP Error 403")
-        is_audio = any(pp.get("preferredcodec") == "mp3" for pp in self.opts.get("postprocessors", []))
-        out = self.opts["outtmpl"].replace("%(ext)s", "mp3" if is_audio else "mp4")
-        Path(out).write_bytes(b"\x00" * 32)
-
-
-@pytest.fixture
-def fake_ydl(main_module, monkeypatch):
-    FakeYDL.fail_download = False
-    monkeypatch.setattr(main_module.yt_dlp, "YoutubeDL", FakeYDL)
-    monkeypatch.setattr(main_module.shutil, "which", lambda name: f"/usr/bin/{name}")
-    return FakeYDL
-
-
-@pytest.fixture
-def decision(main_module, monkeypatch):
-    state = {
-        "value": {
-            "content_type": "music",
-            "top_folder": "Pop!",
-            "sub_folder": "Synth Pop",
-            "artist": "Artist",
-            "title": "Song",
-            "id3_genre": "Synth Pop",
-        },
-        "calls": [],
-    }
-
-    def fake(info, folders, model_override=None):
-        state["calls"].append({"info": info, "folders": folders, "model": model_override})
-        return state["value"]
-
-    monkeypatch.setattr(main_module, "categorize", fake)
-    return state
+from conftest import URL, touch
 
 
 def test_audio_download_places_file_and_records(client, roots, main_module, fake_ydl, decision):

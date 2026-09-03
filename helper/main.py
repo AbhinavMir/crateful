@@ -20,7 +20,7 @@ from anthropic import Anthropic
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from mutagen.id3 import ID3, TALB, TCON, TDRC, TIT2, TPE1
+from mutagen.id3 import ID3, TALB, TBPM, TCON, TDRC, TIT2, TKEY, TPE1
 from mutagen.mp3 import MP3
 from pydantic import BaseModel
 
@@ -97,6 +97,7 @@ class DownloadRequest(BaseModel):
     url: str
     kind: str = "audio"  # "audio" or "video"
     model: str | None = None  # one-off override of the configured model
+    folder: str | None = None  # explicit destination folder; skips the AI call
 
 
 class ConfigUpdate(BaseModel):
@@ -595,47 +596,95 @@ def list_folders(base: Path) -> list[dict]:
     return out
 
 
-CATEGORIZE_SYSTEM = """You categorize YouTube downloads for a personal practice library (royalty-free / personal use only).
+CATEGORIZE_SYSTEM = """You file YouTube downloads into a working DJ library. Personal practice use only.
 
-You receive video metadata and the current folder structure. You return a JSON object with these fields:
+You get video metadata and the library's current folder list. Return ONE JSON object. No prose, no code fences.
 
-- content_type: one of "music", "podcast", "spoken", "other".
-  - "music"   = songs, DJ mixes, full sets, instrumentals, beats, sound-design sample packs intended for music use.
-  - "podcast" = recurring conversational/episodic shows by named hosts. Recognize by episode numbering, "Ep.", show branding, host introductions, RSS-like titles.
-  - "spoken"  = lectures, talks, interviews, audiobook excerpts, one-off spoken content that is not part of a regular podcast.
-  - "other"   = sound effects, ambient field recordings, jingles, tutorials, anything that does not fit the above.
+## The one rule that matters
 
-- top_folder: top-level folder in kebab-case.
-  - music   -> a genre family (e.g., "house", "techno", "hip-hop", "dnb", "trance", "trap", "ambient", "lo-fi", "pop", "rock", "edm", "experimental").
-  - podcast -> literally "podcasts".
-  - spoken  -> literally "spoken".
-  - other   -> literally "other".
+REUSE AN EXISTING FOLDER. You are given the exact folder list. If a track plausibly belongs in a
+folder that already exists, use that folder, spelled exactly as given. A library with 12 good folders
+beats one with 60 near-duplicates. Only invent a folder when nothing on the list is a reasonable home.
+"deep-house" and "deephouse" and "deep-house-mixes" must never coexist.
 
-- sub_folder: more specific folder in kebab-case.
-  - music   -> a sub-genre (e.g., "deep-house", "melodic-techno"). Use "general" if unclear.
-  - podcast -> the show name in kebab-case (e.g., "huberman-lab", "lex-fridman", "this-american-life").
-  - spoken  -> a topic, course, or series name in kebab-case (e.g., "philosophy", "ai-research", "stanford-cs231n").
-  - other   -> a descriptive bucket in kebab-case (e.g., "fx-risers", "ambient", "drum-hits", "vocal-samples").
+## Fields
 
-  Prefer an existing sub_folder within the chosen top_folder when one fits.
+content_type: "music" | "podcast" | "spoken" | "other"
+  music   songs, DJ mixes, live sets, instrumentals, beats, loops, sample packs, remixes
+  podcast an episode of a recurring show. Signals: "Ep. 42", "#317", show branding, a regular host
+  spoken  one-off talks, lectures, interviews, audiobooks, conference sessions
+  other   sound effects, field recordings, foley, risers, drum hits, jingles, tutorials
 
-- artist: clean source attribution.
-  - music   -> artist (e.g., "Daft Punk"). Extract from title; fall back to channel. Strip "Official", "VEVO", "Records".
-  - podcast -> host or show name (e.g., "Andrew Huberman").
-  - spoken  -> speaker name (e.g., "Andrej Karpathy") or institution.
-  - other   -> descriptive source (e.g., "Splice Sounds", channel name).
+top_folder: kebab-case.
+  music   -> a genre family from this list, unless the library already uses a better one:
+          house, techno, trance, dnb, garage, breaks, dubstep, bass, hip-hop, rnb, funk, soul,
+          disco, jazz, latin, afro, reggae, dancehall, pop, rock, metal, indie, electronica,
+          ambient, lo-fi, experimental, classical, soundtrack, edm
+  podcast -> exactly "podcasts"
+  spoken  -> exactly "spoken"
+  other   -> exactly "other"
 
-- title: clean content title. Strip "(Official Video)", "[HD]", "(Lyric Video)", "| Free Download", bracketed genre tags, etc. For podcasts, keep the episode subject but drop the show name + "Ep. N -" prefix (the show is captured in sub_folder).
+sub_folder: kebab-case, more specific.
+  music   a sub-genre: deep-house, tech-house, afro-house, melodic-techno, peak-time, liquid-dnb,
+          jungle, uk-garage, amapiano, boom-bap, neo-soul, synthwave. Use "general" only when the
+          track genuinely has no sub-genre. Prefer a sub_folder that already exists under your
+          chosen top_folder.
+  podcast the show name: huberman-lab, lex-fridman, dissect
+  spoken  a topic or series: philosophy, ai-research, stanford-cs231n
+  other   a bucket: risers, impacts, vocal-chops, drum-hits, ambience, foley
 
-- id3_genre: human-readable genre string for the ID3 TCON tag.
-  - music   -> actual genre (e.g., "Deep House", "Tech House", "Drum & Bass").
-  - podcast -> "Podcast".
-  - spoken  -> "Spoken Word".
-  - other   -> descriptive (e.g., "Sound Effects", "Ambient").
+artist: who made it, cleaned.
+  Titles are usually "Artist - Track". Take the part before the dash.
+  Strip channel noise: VEVO, Official, TV, Music, Records, HD, " - Topic".
+  Remix -> the ORIGINAL artist is the artist. "Odesza - Line Of Sight (Lane 8 Remix)" -> "Odesza".
+  Featured guests are dropped: "Drake feat. Rihanna" -> "Drake".
+  Compilation or label upload with no clear artist -> "Various Artists".
+  DJ mix or set -> the DJ. "Boiler Room: Peggy Gou" -> "Peggy Gou".
+  Nothing usable in the title -> fall back to the cleaned channel name.
 
-Be CONSERVATIVE about creating new top_folders and music sub_folders. The goal is a tidy library. When in doubt, reuse the closest existing one.
+title: the track name, cleaned.
+  Remove: (Official Video), (Official Audio), (Official Music Video), (Lyric Video), (Visualizer),
+  (Audio), [HD], [4K], [Free Download], [NCS Release], "| Free DL", bare genre tags in brackets,
+  emoji, and any leading or trailing separators.
+  KEEP a remix or edit credit, it identifies the version: "Line Of Sight (Lane 8 Remix)".
+  KEEP "Extended Mix", "Radio Edit", "Club Mix", "VIP", "Dub".
+  Podcast -> the episode subject, without the show name and episode number prefix.
 
-Respond with ONLY a JSON object, no prose, no codefences."""
+id3_genre: human-readable, title case. Music -> the real genre, "Deep House", "Drum & Bass",
+  "Tech House". Podcast -> "Podcast". Spoken -> "Spoken Word". Other -> "Sound Effects" or "Ambient".
+
+bpm: integer, or null. Only when the title or description states it outright, for example
+  "128 BPM" or "(174bpm)". Never guess a tempo from the genre.
+
+musical_key: string, or null. Only when stated. Accept "F# minor", "Fm", or Camelot like "8A".
+  Copy it through as written. Never guess.
+
+confidence: "high" | "low".
+  Use "low" when the metadata is too thin to place the track with any confidence. On "low" for
+  music, set top_folder to "unsorted" and sub_folder to "general" instead of guessing a genre.
+  A wrong folder costs more than an unsorted one, because nobody goes back to check.
+
+## Examples
+
+Title "ODESZA - Line Of Sight (Lane 8 Remix) [Official Audio]", channel "ODESZA",
+existing folders include house/deep-house:
+{"content_type":"music","top_folder":"house","sub_folder":"deep-house","artist":"Odesza",
+"title":"Line Of Sight (Lane 8 Remix)","id3_genre":"Deep House","bpm":null,"musical_key":null,
+"confidence":"high"}
+
+Title "Peggy Gou | Boiler Room Berlin", 90 minutes, existing folders include house/dj-mixes:
+{"content_type":"music","top_folder":"house","sub_folder":"dj-mixes","artist":"Peggy Gou",
+"title":"Boiler Room Berlin","id3_genre":"House","bpm":null,"musical_key":null,"confidence":"high"}
+
+Title "Huberman Lab Ep. 84: How to Improve Your Sleep", channel "Andrew Huberman":
+{"content_type":"podcast","top_folder":"podcasts","sub_folder":"huberman-lab","artist":"Andrew Huberman",
+"title":"How to Improve Your Sleep","id3_genre":"Podcast","bpm":null,"musical_key":null,"confidence":"high"}
+
+Title "untitled_final_2 .wav", channel "user8842", no description:
+{"content_type":"music","top_folder":"unsorted","sub_folder":"general","artist":"user8842",
+"title":"untitled_final_2","id3_genre":"Unsorted","bpm":null,"musical_key":null,"confidence":"low"}
+
+Respond with ONLY the JSON object."""
 
 CONTENT_TYPES = {"music", "podcast", "spoken", "other"}
 FORCED_TOP_BY_TYPE = {"podcast": "podcasts", "spoken": "spoken", "other": "other"}
@@ -749,6 +798,106 @@ def categorize(info: dict, folders: list[dict], model_override: str | None = Non
     return _categorize_anthropic(user_msg, model, cfg["anthropic_api_key"])
 
 
+# Junk that YouTube uploaders bolt onto titles. Stripped on the no-AI path.
+TITLE_NOISE_RE = re.compile(
+    r"""\s*[\(\[]\s*(?:
+        official\s*(?:music\s*)?(?:video|audio|visualiser|visualizer|lyric\s*video)?
+      | lyrics?(?:\s*video)?
+      | audio | visuali[sz]er | music\s*video
+      | hd | hq | 4k | 8k | \d{3,4}p
+      | full\s*(?:album|song)?
+      | free\s*(?:download|dl)
+      | ncs\s*release
+      | out\s*now
+    )\s*[\)\]]""",
+    re.IGNORECASE | re.VERBOSE,
+)
+TRAILING_NOISE_RE = re.compile(
+    r"\s*\|\s*(?:free\s*(?:download|dl)|out\s*now|official.*)$", re.IGNORECASE
+)
+CHANNEL_NOISE_RE = re.compile(
+    r"\s*(?:-\s*topic|vevo|official|officiel|music|records|recordings|tv|channel)\s*$",
+    re.IGNORECASE,
+)
+BPM_RE = re.compile(r"(?<!\d)(\d{2,3})\s*(?:bpm)\b", re.IGNORECASE)
+KEY_RE = re.compile(
+    r"\b(?:([A-G][#b\u266f\u266d]?)\s*(?:-|\s)?\s*(minor|major|min|maj|m)\b|(\d{1,2}[AB])\b)"
+)
+
+
+def clean_channel(name: str | None) -> str:
+    name = (name or "").strip()
+    prev = None
+    while name and name != prev:
+        prev = name
+        name = CHANNEL_NOISE_RE.sub("", name).strip(" -\u2013\u2014")
+    return name
+
+
+def strip_title_noise(title: str) -> str:
+    prev = None
+    out = (title or "").strip()
+    while out != prev:
+        prev = out
+        out = TITLE_NOISE_RE.sub("", out)
+    out = TRAILING_NOISE_RE.sub("", out)
+    return out.strip(" -\u2013\u2014|\u00b7").strip()
+
+
+def split_artist_title(info: dict) -> tuple[str, str]:
+    """Best-effort artist/title without asking a model.
+
+    Used when the user picks the destination folder, so no AI call is made and
+    the download costs nothing.
+    """
+    raw = (info.get("title") or "").strip()
+    cleaned = strip_title_noise(raw)
+    channel = clean_channel(info.get("uploader"))
+
+    # yt-dlp exposes real music metadata on topic channels and YouTube Music.
+    meta_artist = (info.get("artist") or info.get("creator") or "").strip()
+    meta_track = (info.get("track") or "").strip()
+    if meta_artist and meta_track:
+        return meta_artist.split(",")[0].strip(), meta_track
+
+    for sep in (" - ", " \u2013 ", " \u2014 ", " | "):
+        if sep in cleaned:
+            left, _, right = cleaned.partition(sep)
+            left, right = left.strip(), right.strip()
+            if left and right:
+                return left, right
+    return (channel or "Unknown Artist"), (cleaned or raw or "untitled")
+
+
+def _coerce_bpm(value) -> int | None:
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return n if 40 <= n <= 220 else None
+
+
+def extract_bpm_key(info: dict) -> tuple[int | None, str | None]:
+    """Read a stated BPM and key out of the title or description. Never guesses."""
+    haystack = f"{info.get('title') or ''}\n{(info.get('description') or '')[:600]}"
+    bpm = None
+    m = BPM_RE.search(haystack)
+    if m:
+        value = int(m.group(1))
+        if 40 <= value <= 220:
+            bpm = value
+    key = None
+    m = KEY_RE.search(info.get("title") or "")
+    if m:
+        if m.group(3):
+            key = m.group(3).upper()
+        else:
+            quality = m.group(2).lower()
+            suffix = "minor" if quality in {"minor", "min", "m"} else "major"
+            key = f"{m.group(1).replace(chr(9839), '#').replace(chr(9837), 'b')} {suffix}"
+    return bpm, key
+
+
 SAFE_CHARS = re.compile(r"[^a-zA-Z0-9\-_\. ]+")
 NAME_CHARS = re.compile(r"[^a-zA-Z0-9\-_\. ()&']+")
 
@@ -778,7 +927,15 @@ def unique_path(target_dir: Path, base: str, ext: str) -> Path:
     return p
 
 
-def write_id3(mp3_path: Path, info: dict, title: str, artist: str, id3_genre: str) -> None:
+def write_id3(
+    mp3_path: Path,
+    info: dict,
+    title: str,
+    artist: str,
+    id3_genre: str,
+    bpm: int | None = None,
+    musical_key: str | None = None,
+) -> None:
     try:
         audio = MP3(mp3_path, ID3=ID3)
         if audio.tags is None:
@@ -790,6 +947,12 @@ def write_id3(mp3_path: Path, info: dict, title: str, artist: str, id3_genre: st
             audio.tags["TALB"] = TALB(encoding=3, text=info["uploader"])
         if info.get("upload_date"):
             audio.tags["TDRC"] = TDRC(encoding=3, text=info["upload_date"][:4])
+        # Djay Pro and Rekordbox read these, so a track that states its BPM or
+        # key in the title arrives already sorted for mixing.
+        if bpm:
+            audio.tags["TBPM"] = TBPM(encoding=3, text=str(int(bpm)))
+        if musical_key:
+            audio.tags["TKEY"] = TKEY(encoding=3, text=musical_key)
         audio.save()
     except Exception as e:
         print(f"ID3 tag write failed (non-fatal): {e}", file=sys.stderr)
@@ -1080,30 +1243,53 @@ def download(req: DownloadRequest):
     except Exception as e:
         raise HTTPException(400, f"yt-dlp failed: {e}") from e
 
-    try:
-        decision = categorize(info, list_folders(base_root), model_override=req.model)
-    except json.JSONDecodeError as e:
-        raise HTTPException(500, f"AI returned invalid JSON: {e}") from e
+    bpm, musical_key = extract_bpm_key(info)
 
-    content_type = str(decision.get("content_type") or "music").lower()
-    if content_type not in CONTENT_TYPES:
-        content_type = "music"
-
-    if content_type in FORCED_TOP_BY_TYPE:
-        top = FORCED_TOP_BY_TYPE[content_type]
+    if req.folder is not None:
+        # The user picked the destination, so skip the model entirely: no API
+        # call, no cost, no wait. Artist and title come from the metadata.
+        categorized = False
+        target_dir = safe_path(kind, req.folder)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        parts = target_dir.relative_to(base_root).parts
+        top = parts[0] if parts else ""
+        sub = parts[1] if len(parts) > 1 else ""
+        raw_artist, raw_title = split_artist_title(info)
+        artist = safe_filename(raw_artist, "Unknown Artist")
+        title = safe_filename(raw_title, info.get("title") or "untitled")
+        content_type = "music" if kind == "audio" else "other"
+        id3_genre = (top or "Unsorted").replace("-", " ").title()
     else:
-        top = slugify(decision.get("top_folder"), "unsorted")
-    sub = slugify(decision.get("sub_folder"), "general")
-    artist = safe_filename(decision.get("artist"), "Unknown Artist")
-    title = safe_filename(decision.get("title"), info.get("title") or "untitled")
-    id3_genre = (
-        decision.get("id3_genre")
-        or DEFAULT_ID3_BY_TYPE.get(content_type)
-        or sub.replace("-", " ").title()
-    )
+        categorized = True
+        try:
+            decision = categorize(info, list_folders(base_root), model_override=req.model)
+        except json.JSONDecodeError as e:
+            raise HTTPException(500, f"AI returned invalid JSON: {e}") from e
 
-    target_dir = base_root / top / sub
-    target_dir.mkdir(parents=True, exist_ok=True)
+        content_type = str(decision.get("content_type") or "music").lower()
+        if content_type not in CONTENT_TYPES:
+            content_type = "music"
+
+        if content_type in FORCED_TOP_BY_TYPE:
+            top = FORCED_TOP_BY_TYPE[content_type]
+        else:
+            top = slugify(decision.get("top_folder"), "unsorted")
+        sub = slugify(decision.get("sub_folder"), "general")
+        artist = safe_filename(decision.get("artist"), "Unknown Artist")
+        title = safe_filename(decision.get("title"), info.get("title") or "untitled")
+        id3_genre = (
+            decision.get("id3_genre")
+            or DEFAULT_ID3_BY_TYPE.get(content_type)
+            or sub.replace("-", " ").title()
+        )
+        # The model can also read a stated tempo or key out of the description.
+        # It is told never to invent one, so a null here just leaves ours.
+        bpm = _coerce_bpm(decision.get("bpm")) or bpm
+        musical_key = (str(decision.get("musical_key")).strip()
+                       if decision.get("musical_key") else None) or musical_key
+
+        target_dir = base_root / top / sub
+        target_dir.mkdir(parents=True, exist_ok=True)
 
     base = NAME_CHARS.sub("", f"{artist} - {title}").strip() or "untitled"
 
@@ -1148,7 +1334,7 @@ def download(req: DownloadRequest):
             raise HTTPException(500, f"Download completed but {glob_ext.upper()} not found")
 
     if kind == "audio":
-        write_id3(final_path, info, title, artist, id3_genre)
+        write_id3(final_path, info, title, artist, id3_genre, bpm, musical_key)
 
     rel_path = str(final_path.relative_to(base_root))
     video_id = extract_video_id(req.url) or info.get("id")
@@ -1174,12 +1360,15 @@ def download(req: DownloadRequest):
         "rel_path": rel_path,
         "top_folder": top,
         "sub_folder": sub,
-        "folder": f"{top}/{sub}",
+        "folder": "/".join(x for x in (top, sub) if x),
         "artist": artist,
         "title": title,
         "id3_genre": id3_genre,
+        "bpm": bpm,
+        "musical_key": musical_key,
+        "categorized": categorized,
         "source_url": req.url,
-        "model_used": req.model or None,
+        "model_used": req.model if categorized else None,
     }
 
 
@@ -1557,7 +1746,62 @@ def list_all_folders(root: str = Query(...)):
         if child.is_dir() and not child.name.startswith("."):
             out.append(str(child.relative_to(base)))
     out.sort()
-    return {"root": root, "folders": out}
+    return {"root": root, "folders": out, "recent": recent_folders(root)}
+
+
+def recent_folders(root: str, limit: int = 8) -> list[str]:
+    """Folders most recently downloaded into, newest first.
+
+    Drives the top of the folder picker, so the folders someone actually uses
+    are one click away instead of buried in an alphabetical list.
+    """
+    base = root_for(root)
+    seen: list[str] = []
+    try:
+        with closing(db_connect()) as conn:
+            rows = conn.execute(
+                "SELECT rel_path FROM files WHERE root = ? ORDER BY added_at DESC LIMIT 400",
+                (root,),
+            ).fetchall()
+    except sqlite3.Error as e:
+        print(f"recent_folders query failed (non-fatal): {e}", file=sys.stderr)
+        return []
+    for r in rows:
+        folder = str(Path(r["rel_path"]).parent)
+        if folder in (".", ""):
+            continue
+        if folder in seen:
+            continue
+        if not (base / folder).is_dir():
+            continue
+        seen.append(folder)
+        if len(seen) >= limit:
+            break
+    return seen
+
+
+PATH_PRESETS = {
+    "home": Path.home(),
+    "desktop": Path.home() / "Desktop",
+    "downloads": Path.home() / "Downloads",
+    "music": Path.home() / "Music",
+    "documents": Path.home() / "Documents",
+}
+
+
+@app.get("/path-presets")
+def path_presets():
+    """Common destinations, so changing the library root does not mean typing a path."""
+    out = []
+    for name, path in PATH_PRESETS.items():
+        out.append({
+            "name": name,
+            "label": name.title(),
+            "audio": str(path / "Crateful"),
+            "video": str(path / "Crateful Video"),
+            "exists": path.is_dir(),
+        })
+    return {"presets": [p for p in out if p["exists"]], "home": str(Path.home())}
 
 
 try:

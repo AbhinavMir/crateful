@@ -201,6 +201,40 @@ $("reset-prompt").addEventListener("click", () => {
   $("prompt-status").textContent = "Reverted to default (not yet saved).";
 });
 
+// Changing the library root should not mean typing a path by hand.
+async function loadPathPresets() {
+  const wrap = $("path-presets");
+  wrap.innerHTML = "";
+  let presets = [];
+  try {
+    const res = await fetch(`${HELPER}/path-presets`);
+    if (!res.ok) return;
+    presets = (await res.json()).presets || [];
+  } catch {
+    return;
+  }
+  for (const p of presets) {
+    const b = document.createElement("button");
+    b.className = "preset";
+    b.type = "button";
+    b.textContent = p.label;
+    b.title = `${p.audio}\n${p.video}`;
+    b.addEventListener("click", () => {
+      $("audio-root").value = p.audio;
+      $("video-root").value = p.video;
+      markActivePreset(presets);
+    });
+    wrap.appendChild(b);
+  }
+  markActivePreset(presets);
+}
+
+function markActivePreset(presets) {
+  const current = $("audio-root").value.trim();
+  const buttons = [...$("path-presets").querySelectorAll(".preset")];
+  buttons.forEach((b, i) => b.classList.toggle("active", presets[i]?.audio === current));
+}
+
 async function loadHelperInfo() {
   const el = $("helper-version");
   try {
@@ -261,5 +295,9 @@ async function updateYtDlp() {
 $("save-btn").addEventListener("click", save);
 $("update-ytdlp").addEventListener("click", updateYtDlp);
 
-load();
+load().then(loadPathPresets);
 loadHelperInfo();
+$("audio-root").addEventListener("input", () => {
+  const wrap = $("path-presets");
+  wrap.querySelectorAll(".preset").forEach((b) => b.classList.remove("active"));
+});

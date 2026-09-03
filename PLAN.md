@@ -25,6 +25,14 @@ Goal: make Crateful safe and reliable for people who install it from GitHub.
 - README rewritten: providers, settings, security, updating, full endpoint table, troubleshooting.
 - `CONTRIBUTING.md` covers setup, checks, the Chrome reload loop, and the release command.
 
+## Phase 4: one-button download (done)
+
+- The YouTube row now shows one **Download** button plus a **⋮** menu. Download alone takes the audio and lets the AI file it.
+- The menu lists recent folders first, then all folders, with a filter box, an audio/video switch, and an offer to create a folder that does not exist yet. Picking a folder sends `folder` to `/download`, which skips the model entirely.
+- `/folders` also returns recent folders. New `/path-presets` feeds one-click library destinations on the Settings page.
+- The categorization prompt was rewritten: a fixed genre vocabulary, hard anti-fragmentation rules, remix and featured-artist handling, a low-confidence path to `unsorted/general`, and BPM and key extraction written to the ID3 TBPM and TKEY tags.
+- The per-download model dropdown is gone from the page. The `model` field still works over the API.
+
 ## Later
 
 - Split `helper/main.py` (1449 lines) into modules.
