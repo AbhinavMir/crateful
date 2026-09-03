@@ -124,7 +124,7 @@ def test_download_failure_is_500_and_leaves_no_file(client, roots, fake_ydl, dec
     fake_ydl.fail_download = True
     r = client.post("/download", json={"url": URL, "kind": "audio"})
     assert r.status_code == 500
-    assert "Download failed" in r.json()["detail"]
+    assert "download failed" in r.json()["detail"]
     assert list(roots["audio"].rglob("*.mp3")) == []
 
 

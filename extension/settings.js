@@ -201,6 +201,65 @@ $("reset-prompt").addEventListener("click", () => {
   $("prompt-status").textContent = "Reverted to default (not yet saved).";
 });
 
+async function loadHelperInfo() {
+  const el = $("helper-version");
+  try {
+    const res = await fetch(`${HELPER}/status`, { cache: "no-store" });
+    if (!res.ok) throw new Error(res.statusText);
+    const s = await res.json();
+    el.textContent = `Helper ${s.version} · yt-dlp ${s.yt_dlp_version || "not installed"}`;
+  } catch {
+    el.textContent = "Helper not running.";
+  }
+}
+
+async function waitForHelper(timeoutMs = 20000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    try {
+      const res = await fetch(`${HELPER}/status`, { cache: "no-store" });
+      if (res.ok) return true;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
+async function updateYtDlp() {
+  const btn = $("update-ytdlp");
+  const st = $("ytdlp-status");
+  btn.disabled = true;
+  st.className = "muted";
+  st.textContent = "Upgrading yt-dlp...";
+  try {
+    const res = await fetch(`${HELPER}/update/yt-dlp`, { method: "POST" });
+    const text = await res.text();
+    let data = {};
+    try { data = JSON.parse(text); } catch {}
+    if (!res.ok) throw new Error(data.detail || text || res.statusText);
+    if (data.updated) {
+      st.textContent = `Updated ${data.before} → ${data.after}. Restarting helper...`;
+      await new Promise((r) => setTimeout(r, 1500));
+      const back = await waitForHelper();
+      st.className = back ? "muted ok" : "muted err";
+      st.textContent = back
+        ? `Updated ${data.before} → ${data.after}.`
+        : "Helper did not come back. Run: helper/service.sh status";
+    } else {
+      st.className = "muted ok";
+      st.textContent = `Already the latest release (${data.after}).`;
+    }
+  } catch (e) {
+    st.className = "muted err";
+    st.textContent = `Update failed: ${e.message || e}`;
+  } finally {
+    btn.disabled = false;
+    loadHelperInfo();
+  }
+}
+
 $("save-btn").addEventListener("click", save);
+$("update-ytdlp").addEventListener("click", updateYtDlp);
 
 load();
+loadHelperInfo();

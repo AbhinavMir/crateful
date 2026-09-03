@@ -18,12 +18,12 @@ Goal: make YTD_DJ safe and reliable for people who install it from GitHub.
 - `/reveal` uses `xdg-open` on Linux.
 - Extension shows a clear message when yt-dlp fails and points at the update button.
 
-## Phase 3: release and docs
+## Phase 3: release and docs (done)
 
-- `scripts/release.sh X.Y.Z` bumps `VERSION`, `extension/manifest.json`, and `helper/main.py`, commits, and tags.
-- GitHub Action on tag: zips `extension/` and attaches it to a GitHub Release.
-- README rewrite: providers, settings page, DB endpoints, security note, development section.
-- `CONTRIBUTING.md`: how to run tests and lint.
+- `scripts/release.sh X.Y.Z [--push]` bumps `VERSION`, `extension/manifest.json`, and `helper/main.py`, commits, and tags.
+- `.github/workflows/release.yml` runs on a `v*` tag. It checks that the tag matches `VERSION`, then creates the GitHub Release with generated notes.
+- README rewritten: providers, settings, security, updating, full endpoint table, troubleshooting.
+- `CONTRIBUTING.md` covers setup, checks, the Chrome reload loop, and the release command.
 
 ## Later
 

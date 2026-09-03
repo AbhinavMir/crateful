@@ -89,9 +89,13 @@
       setTimeout(() => setDownloaded(btn, kind, data.rel_path), 2200);
     } catch (e) {
       const msg = e.message || String(e);
-      const short = msg.length > 60 ? msg.slice(0, 57) + "..." : msg;
+      const isYtDlp = /yt-dlp/i.test(msg);
+      const short = isYtDlp
+        ? "yt-dlp failed — update it in Settings"
+        : msg.length > 60 ? msg.slice(0, 57) + "..." : msg;
+      btn.title = msg;
       setState(btn, "err", short);
-      setTimeout(() => clearDownloaded(btn, kind), 4000);
+      setTimeout(() => clearDownloaded(btn, kind), isYtDlp ? 8000 : 4000);
     } finally {
       btn.disabled = false;
     }

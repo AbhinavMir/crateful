@@ -1,5 +1,7 @@
+import importlib.metadata
 import json
 import os
+import platform
 import re
 import shutil
 import sqlite3
@@ -27,7 +29,7 @@ CONFIG_DIR = Path(os.environ.get("YTD_DJ_HOME") or (Path.home() / ".ytd_dj")).ex
 CONFIG_FILE = CONFIG_DIR / "config.json"
 HISTORY_FILE = CONFIG_DIR / "history.json"
 DB_FILE = CONFIG_DIR / "library.db"
-PORT = 7531
+PORT = int(os.environ.get("YTD_DJ_PORT") or 7531)
 VERSION = "0.11.1"
 
 DEFAULT_PROVIDER = "anthropic"
@@ -797,6 +799,7 @@ def status():
         "audio_root": str(audio_root()),
         "video_root": str(video_root()),
         "yt_dlp": shutil.which("yt-dlp") or "python module",
+        "yt_dlp_version": yt_dlp_version(),
         "ffmpeg": shutil.which("ffmpeg") is not None,
         "provider": cfg["provider"],
         "model": cfg["model"],
@@ -928,39 +931,106 @@ def version_info():
     }
 
 
-@app.post("/update")
-def update():
-    repo_root = Path(__file__).resolve().parent.parent
-    if not (repo_root / ".git").exists():
-        raise HTTPException(
-            400,
-            f"Not a git checkout at {repo_root}. Pull updates manually.",
-        )
+HELPER_DIR = Path(__file__).resolve().parent
+REPO_ROOT = HELPER_DIR.parent
+REQUIREMENTS_FILE = HELPER_DIR / "requirements.txt"
+REQUIREMENTS_STAMP = HELPER_DIR / ".venv" / ".requirements.sha256"
+
+
+def yt_dlp_version() -> str | None:
     try:
-        before = subprocess.check_output(
-            ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True
-        ).strip()
-        subprocess.run(
-            ["git", "-C", str(repo_root), "fetch", "--quiet"],
-            check=True, capture_output=True, text=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(repo_root), "pull", "--ff-only", "--quiet"],
-            check=True, capture_output=True, text=True,
-        )
-        after = subprocess.check_output(
-            ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True
-        ).strip()
+        return importlib.metadata.version("yt-dlp")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _run(cmd: list[str], timeout: int = 300) -> str:
+    """Run a command; raise HTTPException(500) with its output on failure."""
+    try:
+        res = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout)
     except subprocess.CalledProcessError as e:
         msg = (e.stderr or e.stdout or str(e)).strip()
-        raise HTTPException(500, f"git failed: {msg}") from e
+        raise HTTPException(500, f"{cmd[0]} failed: {msg[-800:]}") from e
+    except subprocess.TimeoutExpired as e:
+        raise HTTPException(500, f"{cmd[0]} timed out after {timeout}s") from e
+    return (res.stdout or "").strip()
+
+
+def _git(*args: str) -> str:
+    return _run(["git", "-C", str(REPO_ROOT), *args])
+
+
+def _pip(*args: str) -> str:
+    return _run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-q", *args])
+
+
+def _installed_version_subprocess(dist: str) -> str | None:
+    """Read a package version in a fresh interpreter so a just-upgraded install is seen."""
+    code = (
+        "import importlib.metadata as m, sys\n"
+        "try: print(m.version(sys.argv[1]))\n"
+        "except m.PackageNotFoundError: print('')"
+    )
+    try:
+        out = subprocess.run(
+            [sys.executable, "-c", code, dist], capture_output=True, text=True, timeout=30
+        ).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return out or None
+
+
+def _write_requirements_stamp() -> None:
+    """Tell run.sh that requirements.txt is already installed."""
+    try:
+        import hashlib
+
+        digest = hashlib.sha256(REQUIREMENTS_FILE.read_bytes()).hexdigest()
+        REQUIREMENTS_STAMP.parent.mkdir(parents=True, exist_ok=True)
+        REQUIREMENTS_STAMP.write_text(digest + "\n")
+    except OSError as e:
+        print(f"Could not write requirements stamp (non-fatal): {e}", file=sys.stderr)
+
+
+def refresh_deps() -> None:
+    """Install anything new in requirements.txt and move yt-dlp to the latest release."""
+    _pip("-r", str(REQUIREMENTS_FILE))
+    _pip("-U", "yt-dlp")
+    _write_requirements_stamp()
+
+
+def restart_argv() -> list[str]:
+    """The canonical launch command, independent of how this process was started."""
+    return [sys.executable, str(HELPER_DIR / "main.py")]
+
+
+def schedule_restart(delay: float = 1.0) -> None:
+    """Replace this process with a fresh helper after the response is sent.
+
+    exec keeps the PID and the environment, so it works with or without the
+    LaunchAgent: launchd sees no exit, and a plain `run.sh` session keeps going.
+    """
+
+    def _restart():
+        time.sleep(delay)
+        os.execv(sys.executable, restart_argv())
+
+    threading.Thread(target=_restart, daemon=True).start()
+
+
+@app.post("/update")
+def update():
+    if not (REPO_ROOT / ".git").exists():
+        raise HTTPException(400, f"Not a git checkout at {REPO_ROOT}. Pull updates manually.")
+    before = _git("rev-parse", "HEAD")
+    _git("fetch", "--quiet")
+    _git("pull", "--ff-only", "--quiet")
+    after = _git("rev-parse", "HEAD")
 
     updated = before != after
     if updated:
-        def deferred_exit():
-            time.sleep(1)
-            os._exit(0)
-        threading.Thread(target=deferred_exit, daemon=True).start()
+        refresh_deps()
+        schedule_restart()
 
     return {
         "ok": True,
@@ -968,6 +1038,24 @@ def update():
         "before": before[:7],
         "after": after[:7],
         "will_restart": updated,
+    }
+
+
+@app.post("/update/yt-dlp")
+def update_yt_dlp():
+    """Upgrade yt-dlp in place. YouTube changes break old versions often."""
+    before = yt_dlp_version()
+    _pip("-U", "yt-dlp")
+    after = _installed_version_subprocess("yt-dlp") or before
+    changed = bool(after) and after != before
+    if changed:
+        schedule_restart()
+    return {
+        "ok": True,
+        "updated": changed,
+        "before": before,
+        "after": after,
+        "will_restart": changed,
     }
 
 
@@ -984,7 +1072,7 @@ def download(req: DownloadRequest):
         with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
             info = ydl.extract_info(req.url, download=False)
     except Exception as e:
-        raise HTTPException(400, f"yt-dlp metadata failed: {e}") from e
+        raise HTTPException(400, f"yt-dlp failed: {e}") from e
 
     try:
         decision = categorize(info, list_folders(base_root), model_override=req.model)
@@ -1044,7 +1132,7 @@ def download(req: DownloadRequest):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([req.url])
     except Exception as e:
-        raise HTTPException(500, f"Download failed: {e}") from e
+        raise HTTPException(500, f"yt-dlp download failed: {e}") from e
 
     if not final_path.exists():
         candidates = list(target_dir.glob(f"{base}*.{glob_ext}"))
@@ -1235,11 +1323,18 @@ def reveal(root: str = Query("audio"), path: str = Query("")):
     target = safe_path(root, path)
     if not target.exists():
         raise HTTPException(404, "Path not found")
+    system = platform.system()
+    if system == "Darwin":
+        cmd = ["open", "-R", str(target)]
+    elif system == "Linux":
+        cmd = ["xdg-open", str(target if target.is_dir() else target.parent)]
+    else:
+        raise HTTPException(501, f"Reveal is not supported on {system}")
     try:
-        subprocess.run(["open", "-R", str(target)], check=False)
+        subprocess.run(cmd, check=False)
         return {"ok": True, "revealed": str(target)}
-    except Exception as e:
-        raise HTTPException(500, f"open failed: {e}") from e
+    except OSError as e:
+        raise HTTPException(500, f"{cmd[0]} failed: {e}") from e
 
 
 @app.delete("/file")
