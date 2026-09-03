@@ -12,3 +12,7 @@ com.august.ytd-dj.plist
 .env
 helper/config.json
 *.key
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
