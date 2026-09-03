@@ -15,14 +15,15 @@ import yt_dlp
 from anthropic import Anthropic
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from mutagen.id3 import ID3, TALB, TCON, TDRC, TIT2, TPE1
 from mutagen.mp3 import MP3
 from pydantic import BaseModel
 
 DEFAULT_AUDIO_DIR = Path.home() / "YTD_DJ"
 DEFAULT_VIDEO_DIR = Path.home() / "YTD_DJ_Video"
-CONFIG_DIR = Path.home() / ".ytd_dj"
+# YTD_DJ_HOME overrides the config/state directory (used by tests and custom setups).
+CONFIG_DIR = Path(os.environ.get("YTD_DJ_HOME") or (Path.home() / ".ytd_dj")).expanduser()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 HISTORY_FILE = CONFIG_DIR / "history.json"
 DB_FILE = CONFIG_DIR / "library.db"
@@ -44,17 +45,44 @@ YOUTUBE_ID_RE = re.compile(
     r"(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|v/))([A-Za-z0-9_-]{11})"
 )
 
-DEFAULT_AUDIO_DIR.mkdir(exist_ok=True)
-DEFAULT_VIDEO_DIR.mkdir(exist_ok=True)
-CONFIG_DIR.mkdir(exist_ok=True)
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Browser callers must be the extension (any unpacked/store ID) or the
+# youtube.com content script. Any other web page that tries to reach the
+# helper is refused, so a malicious site cannot delete files or change config.
+# Requests without an Origin header (curl, scripts) are local tools and pass.
+ALLOWED_ORIGIN_PATTERN = r"^(chrome-extension://[a-p]{32}|https://www\.youtube\.com)$"
+ALLOWED_ORIGIN_RE = re.compile(ALLOWED_ORIGIN_PATTERN)
+
+
+class OriginAllowlistMiddleware:
+    def __init__(self, app, pattern: re.Pattern):
+        self.app = app
+        self.pattern = pattern
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            origin = None
+            for name, value in scope.get("headers", []):
+                if name == b"origin":
+                    origin = value.decode("latin-1")
+                    break
+            if origin is not None and not self.pattern.match(origin):
+                response = JSONResponse({"detail": "Origin not allowed"}, status_code=403)
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
 
 app = FastAPI(title="YTD_DJ Helper")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=ALLOWED_ORIGIN_PATTERN,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added last so it runs first (outermost): bad origins never reach CORS or routes.
+app.add_middleware(OriginAllowlistMiddleware, pattern=ALLOWED_ORIGIN_RE)
 
 
 class DownloadRequest(BaseModel):
@@ -653,7 +681,7 @@ def _categorize_openai(user_msg: str, model: str, key: str | None) -> dict:
     try:
         from openai import OpenAI
     except ImportError:
-        raise HTTPException(500, "openai package not installed. Run: pip install -r helper/requirements.txt")
+        raise HTTPException(500, "openai package not installed. Run: pip install -r helper/requirements.txt") from None
     client = OpenAI(api_key=key)
     resp = client.chat.completions.create(
         model=model,
@@ -693,9 +721,9 @@ def _categorize_ollama(user_msg: str, model: str, base_url: str | None) -> dict:
             body = e.read().decode("utf-8")[:200]
         except Exception:
             pass
-        raise HTTPException(500, f"Ollama HTTP {e.code} from {url}: {body or e.reason}")
+        raise HTTPException(500, f"Ollama HTTP {e.code} from {url}: {body or e.reason}") from e
     except urllib.error.URLError as e:
-        raise HTTPException(500, f"Ollama unreachable at {url}: {e}")
+        raise HTTPException(500, f"Ollama unreachable at {url}: {e}") from e
     text = (data.get("message") or {}).get("content") or ""
     if not text.strip():
         raise HTTPException(500, "Ollama returned empty response")
@@ -815,7 +843,7 @@ def put_config(req: ConfigUpdate):
                 p.mkdir(parents=True, exist_ok=True)
                 updates[k] = str(p)
             except (OSError, RuntimeError) as e:
-                raise HTTPException(400, f"Cannot use {k}={updates[k]}: {e}")
+                raise HTTPException(400, f"Cannot use {k}={updates[k]}: {e}") from e
 
     raw = _parse_config_file()
     if not isinstance(raw, dict):
@@ -925,7 +953,7 @@ def update():
         ).strip()
     except subprocess.CalledProcessError as e:
         msg = (e.stderr or e.stdout or str(e)).strip()
-        raise HTTPException(500, f"git failed: {msg}")
+        raise HTTPException(500, f"git failed: {msg}") from e
 
     updated = before != after
     if updated:
@@ -956,12 +984,12 @@ def download(req: DownloadRequest):
         with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
             info = ydl.extract_info(req.url, download=False)
     except Exception as e:
-        raise HTTPException(400, f"yt-dlp metadata failed: {e}")
+        raise HTTPException(400, f"yt-dlp metadata failed: {e}") from e
 
     try:
         decision = categorize(info, list_folders(base_root), model_override=req.model)
     except json.JSONDecodeError as e:
-        raise HTTPException(500, f"AI returned invalid JSON: {e}")
+        raise HTTPException(500, f"AI returned invalid JSON: {e}") from e
 
     content_type = str(decision.get("content_type") or "music").lower()
     if content_type not in CONTENT_TYPES:
@@ -1016,7 +1044,7 @@ def download(req: DownloadRequest):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([req.url])
     except Exception as e:
-        raise HTTPException(500, f"Download failed: {e}")
+        raise HTTPException(500, f"Download failed: {e}") from e
 
     if not final_path.exists():
         candidates = list(target_dir.glob(f"{base}*.{glob_ext}"))
@@ -1211,7 +1239,7 @@ def reveal(root: str = Query("audio"), path: str = Query("")):
         subprocess.run(["open", "-R", str(target)], check=False)
         return {"ok": True, "revealed": str(target)}
     except Exception as e:
-        raise HTTPException(500, f"open failed: {e}")
+        raise HTTPException(500, f"open failed: {e}") from e
 
 
 @app.delete("/file")
@@ -1362,13 +1390,13 @@ def reclassify(req: ReclassifyRequest):
         with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
             info = ydl.extract_info(source_url, download=False)
     except Exception as e:
-        raise HTTPException(400, f"yt-dlp failed: {e}")
+        raise HTTPException(400, f"yt-dlp failed: {e}") from e
 
     base_root = root_for(req.root)
     try:
         decision = categorize(info, list_folders(base_root))
     except json.JSONDecodeError as e:
-        raise HTTPException(500, f"AI returned invalid JSON: {e}")
+        raise HTTPException(500, f"AI returned invalid JSON: {e}") from e
 
     content_type = str(decision.get("content_type") or "music").lower()
     if content_type not in CONTENT_TYPES:
