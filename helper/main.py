@@ -32,7 +32,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 HISTORY_FILE = CONFIG_DIR / "history.json"
 DB_FILE = CONFIG_DIR / "library.db"
 PORT = int(os.environ.get("YTD_DJ_PORT") or 7531)
-VERSION = "0.12.1"
+VERSION = "0.12.2"
 
 DEFAULT_PROVIDER = "anthropic"
 DEFAULT_MODEL_BY_PROVIDER = {
