@@ -5,6 +5,7 @@ import platform
 import re
 import shutil
 import sqlite3
+import ssl
 import subprocess
 import sys
 import threading
@@ -13,6 +14,7 @@ import urllib.request
 from contextlib import closing
 from pathlib import Path
 
+import certifi
 import yt_dlp
 from anthropic import Anthropic
 from fastapi import FastAPI, HTTPException, Query
@@ -42,6 +44,10 @@ SUPPORTED_PROVIDERS = set(DEFAULT_MODEL_BY_PROVIDER.keys())
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 REPO = "AbhinavMir/crateful"
 REMOTE_VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
+
+# A python.org build ships no system CA bundle, so plain urlopen() over HTTPS
+# fails with CERTIFICATE_VERIFY_FAILED. Always verify against certifi instead.
+SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 YOUTUBE_ID_RE = re.compile(
     r"(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|v/))([A-Za-z0-9_-]{11})"
@@ -715,7 +721,7 @@ def _categorize_ollama(user_msg: str, model: str, base_url: str | None) -> dict:
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=180) as r:
+        with urllib.request.urlopen(req, timeout=180, context=SSL_CONTEXT) as r:
             data = json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = ""
@@ -877,7 +883,7 @@ def test_key(req: TestKeyRequest):
     if provider == "ollama":
         url = (req.url or cfg["ollama_url"] or DEFAULT_OLLAMA_URL).rstrip("/")
         try:
-            with urllib.request.urlopen(url + "/api/tags", timeout=4) as r:
+            with urllib.request.urlopen(url + "/api/tags", timeout=4, context=SSL_CONTEXT) as r:
                 data = json.loads(r.read().decode("utf-8"))
             models = [m.get("name") for m in data.get("models", []) if m.get("name")]
             return {"ok": True, "models": models[:50]}
@@ -917,11 +923,11 @@ def version_info():
     error = None
     try:
         req = urllib.request.Request(
-            REMOTE_VERSION_URL, headers={"User-Agent": "YTD_DJ-Helper"}
+            REMOTE_VERSION_URL, headers={"User-Agent": "Crateful-Helper"}
         )
-        with urllib.request.urlopen(req, timeout=5) as r:
+        with urllib.request.urlopen(req, timeout=5, context=SSL_CONTEXT) as r:
             latest = r.read().decode().strip()
-    except Exception as e:
+    except OSError as e:  # URLError, SSLError and timeouts all subclass OSError
         error = str(e)
     return {
         "local": VERSION,

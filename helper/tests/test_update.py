@@ -137,3 +137,43 @@ def test_restart_argv_is_canonical(main_module):
 
 def test_port_env_override(main_module, monkeypatch):
     assert main_module.PORT == 7531
+
+
+def test_version_uses_certifi_and_reports_latest(client, main_module, monkeypatch):
+    """A python.org build has no system CA bundle; /version must verify via certifi."""
+    import io
+    import ssl
+
+    seen = {}
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None, context=None):
+        seen["url"] = req.full_url
+        seen["context"] = context
+        return Resp(b"9.9.9\n")
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", fake_urlopen)
+    body = client.get("/version").json()
+    assert body == {"local": main_module.VERSION, "latest": "9.9.9",
+                    "update_available": True, "error": None}
+    assert seen["url"].endswith("/VERSION")
+    assert main_module.REPO in seen["url"]
+    assert isinstance(seen["context"], ssl.SSLContext)
+    assert seen["context"].verify_mode == ssl.CERT_REQUIRED
+
+
+def test_version_reports_network_error(client, main_module, monkeypatch):
+    def boom(req, timeout=None, context=None):
+        raise main_module.urllib.error.URLError("no route to host")
+
+    monkeypatch.setattr(main_module.urllib.request, "urlopen", boom)
+    body = client.get("/version").json()
+    assert body["latest"] is None
+    assert body["update_available"] is False
+    assert "no route to host" in body["error"]

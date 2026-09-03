@@ -5,3 +5,4 @@ mutagen>=1.47
 anthropic>=0.40
 openai>=1.40
 pydantic>=2.0
+certifi>=2024.2.2
