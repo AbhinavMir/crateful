@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install/uninstall the YTD_DJ helper as a macOS LaunchAgent.
+# Install/uninstall the Crateful helper as a macOS LaunchAgent.
 # Usage:
 #   ./service.sh install   # generate + load plist (starts now, runs at login)
 #   ./service.sh uninstall # unload + remove plist

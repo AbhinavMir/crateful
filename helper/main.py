@@ -40,7 +40,7 @@ DEFAULT_MODEL_BY_PROVIDER = {
 }
 SUPPORTED_PROVIDERS = set(DEFAULT_MODEL_BY_PROVIDER.keys())
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
-REPO = "AbhinavMir/downloadsounds"
+REPO = "AbhinavMir/crateful"
 REMOTE_VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
 
 YOUTUBE_ID_RE = re.compile(
@@ -1566,7 +1566,7 @@ except Exception as _e:
 if __name__ == "__main__":
     import uvicorn
 
-    print(f"YTD_DJ helper {VERSION} starting on http://127.0.0.1:{PORT}")
+    print(f"Crateful helper {VERSION} starting on http://127.0.0.1:{PORT}")
     print(f"Audio library: {audio_root()}")
     print(f"Video library: {video_root()}")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="info")

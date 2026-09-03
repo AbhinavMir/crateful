@@ -24,7 +24,7 @@ The tests fake yt-dlp and the AI call. They never touch the network, `~/.ytd_dj`
 ## Try it in Chrome
 
 - Extension pages (`popup.html`, `library.html`, `settings.html`) load from disk each time you open them.
-- After you edit `content.js`, `background.js`, or `manifest.json`, click the reload icon for YTD DJ on `chrome://extensions`.
+- After you edit `content.js`, `background.js`, or `manifest.json`, click the reload icon for Crateful on `chrome://extensions`.
 - After you edit `helper/main.py`, run `helper/service.sh restart`, or stop and start `helper/run.sh`.
 
 ## Open a pull request

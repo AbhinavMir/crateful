@@ -1,5 +1,5 @@
 const HELPER = "http://127.0.0.1:7531";
-const VERSION_URL = "https://raw.githubusercontent.com/AbhinavMir/downloadsounds/main/VERSION";
+const VERSION_URL = "https://raw.githubusercontent.com/AbhinavMir/crateful/main/VERSION";
 
 const $ = (id) => document.getElementById(id);
 let allItems = [];
@@ -38,7 +38,7 @@ async function sendAudioCmd(cmd, extra = {}) {
           await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
           continue;
         }
-        console.error("[YTD DJ popup] audio cmd error", cmd, resp.error);
+        console.error("[Crateful popup] audio cmd error", cmd, resp.error);
         return null;
       }
       return resp ?? null;
@@ -49,7 +49,7 @@ async function sendAudioCmd(cmd, extra = {}) {
         await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
         continue;
       }
-      console.error("[YTD DJ popup] audio cmd failed", cmd, e);
+      console.error("[Crateful popup] audio cmd failed", cmd, e);
       return null;
     }
   }

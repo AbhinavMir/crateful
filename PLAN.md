@@ -1,6 +1,6 @@
 # Plan
 
-Goal: make YTD_DJ safe and reliable for people who install it from GitHub.
+Goal: make Crateful safe and reliable for people who install it from GitHub.
 
 ## Phase 1: harden the helper (branch `harden-helper`)
 

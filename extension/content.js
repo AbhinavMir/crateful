@@ -63,7 +63,7 @@
           { method: "POST" },
         );
       } catch (e) {
-        console.error("[YTD DJ] reveal failed", e);
+        console.error("[Crateful] reveal failed", e);
       }
       return;
     }

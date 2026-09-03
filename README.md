@@ -1,4 +1,4 @@
-# YTD_DJ
+# Crateful
 
 Download YouTube audio as MP3 (or video as MP4) into AI-categorized folders, then browse and play the library inside Chrome. Built for personal DJ practice with royalty-free content. Audio lands in `~/YTD_DJ/{genre}/{sub-genre}/` with ID3 tags, so Djay Pro or any tag-aware player can filter by genre. Video lands in `~/YTD_DJ_Video/`, a separate root, so a music-only library tool does not index it.
 
@@ -25,8 +25,8 @@ macOS is the primary platform. The helper and extension work on Linux. The backg
 ## Install
 
 ```bash
-git clone https://github.com/AbhinavMir/downloadsounds.git ytd_dj
-cd ytd_dj
+git clone https://github.com/AbhinavMir/crateful.git crateful
+cd crateful
 ./install.sh
 ```
 
@@ -37,9 +37,9 @@ Then load the extension:
 1. Open `chrome://extensions`.
 2. Turn on **Developer mode**.
 3. Click **Load unpacked** and pick the `extension/` folder.
-4. Pin **YTD DJ** to the toolbar.
+4. Pin **Crateful** to the toolbar.
 
-Then add your API key: click the YTD DJ icon, open **Settings**, pick a provider, paste the key, and click **Test**. Keys are written to `~/.ytd_dj/config.json`. You can also export `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the shell that starts the helper.
+Then add your API key: click the Crateful icon, open **Settings**, pick a provider, paste the key, and click **Test**. Keys are written to `~/.ytd_dj/config.json`. You can also export `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the shell that starts the helper.
 
 ## Use it
 

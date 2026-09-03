@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YTD DJ",
+  "name": "Crateful",
   "version": "0.12.0",
-  "description": "Download YouTube audio as MP3 into AI-categorized DJ library folders.",
+  "description": "Download YouTube audio as MP3 into AI-categorized DJ crates, tagged for Djay Pro.",
   "permissions": ["activeTab", "storage", "offscreen"],
   "host_permissions": [
     "http://127.0.0.1:7531/*",
@@ -22,6 +22,6 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "YTD DJ"
+    "default_title": "Crateful"
   }
 }

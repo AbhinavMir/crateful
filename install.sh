@@ -60,7 +60,7 @@ cat <<STEPS
   2. Turn on "Developer mode" (top right)
   3. Click "Load unpacked" and pick:
        $ROOT/extension
-  4. Click the YTD DJ icon, open Settings, and add your API key
+  4. Click the Crateful icon, open Settings, and add your API key
      (Anthropic or OpenAI), or pick Ollama for a local model.
 
 Library folders: ~/YTD_DJ (audio) and ~/YTD_DJ_Video (video). Change them in Settings.
