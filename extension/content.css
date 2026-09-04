@@ -42,6 +42,7 @@
 
 .cf-btn.cf-ok { background: #E7F6E7; color: #15621B; border-color: #BFE3BF; }
 .cf-btn.cf-err { background: #F1F1F1; color: #444; border-color: #D6D6D6; }
+.cf-btn.cf-warn { background: #FFF4E5; color: #8A5300; border-color: #F2D9B0; }
 .cf-btn.cf-done { background: #E9F3EA; color: #1B6B22; border-color: #C3E0C6; }
 
 .cf-menu {

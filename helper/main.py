@@ -802,6 +802,8 @@ Title "untitled_final_2 .wav", channel "user8842", no description:
 Respond with ONLY the JSON object."""
 
 CONTENT_TYPES = {"music", "podcast", "spoken", "other"}
+FALLBACK_TOP = "unsorted"
+FALLBACK_SUB = "general"
 FORCED_TOP_BY_TYPE = {"podcast": "podcasts", "spoken": "spoken", "other": "other"}
 DEFAULT_ID3_BY_TYPE = {"podcast": "Podcast", "spoken": "Spoken Word"}
 
@@ -830,7 +832,7 @@ def _parse_json_response(text: str) -> dict:
 
 def _categorize_anthropic(user_msg: str, model: str, key: str | None) -> dict:
     if not key:
-        raise HTTPException(500, "Anthropic API key missing — set anthropic_api_key in ~/.ytd_dj/config.json")
+        raise HTTPException(400, "No Anthropic API key set.")
     client = Anthropic(api_key=key)
     resp = client.messages.create(
         model=model,
@@ -849,7 +851,7 @@ def _categorize_anthropic(user_msg: str, model: str, key: str | None) -> dict:
 
 def _categorize_openai(user_msg: str, model: str, key: str | None) -> dict:
     if not key:
-        raise HTTPException(500, "OpenAI API key missing — set openai_api_key in ~/.ytd_dj/config.json")
+        raise HTTPException(400, "No OpenAI API key set.")
     try:
         from openai import OpenAI
     except ImportError:
@@ -1380,6 +1382,7 @@ def download(req: DownloadRequest):
 
     bpm, musical_key = extract_bpm_key(info)
     video_id_hint = extract_video_id(url) or info.get("id")
+    ai_error = None
 
     if req.folder is not None:
 
@@ -1396,33 +1399,46 @@ def download(req: DownloadRequest):
         content_type = "music" if kind == "audio" else "other"
         id3_genre = (top or "Unsorted").replace("-", " ").title()
     else:
-        categorized = True
+        decision = None
         try:
             decision = categorize(info, list_folders(base_root), model_override=req.model)
-        except json.JSONDecodeError as e:
-            raise HTTPException(500, f"AI returned invalid JSON: {e}") from e
+        except HTTPException as e:
+            ai_error = str(e.detail)
+        except json.JSONDecodeError:
+            ai_error = "The AI returned something that was not JSON."
+        except Exception as e:
+            ai_error = f"{type(e).__name__}: {e}"[:200]
 
-        content_type = str(decision.get("content_type") or "music").lower()
-        if content_type not in CONTENT_TYPES:
-            content_type = "music"
+        categorized = decision is not None
 
-        if content_type in FORCED_TOP_BY_TYPE:
-            top = FORCED_TOP_BY_TYPE[content_type]
+        if decision is None:
+            top, sub = FALLBACK_TOP, FALLBACK_SUB
+            raw_artist, raw_title = split_artist_title(info)
+            artist = safe_filename(raw_artist, "Unknown Artist")
+            title = safe_filename(raw_title, info.get("title") or "untitled")
+            content_type = "music" if kind == "audio" else "other"
+            id3_genre = "Unsorted"
+            print(f"AI filing unavailable, saving to {top}/{sub}: {ai_error}", file=sys.stderr)
         else:
-            top = slugify(decision.get("top_folder"), "unsorted")
-        sub = slugify(decision.get("sub_folder"), "general")
-        artist = safe_filename(decision.get("artist"), "Unknown Artist")
-        title = safe_filename(decision.get("title"), info.get("title") or "untitled")
-        id3_genre = (
-            decision.get("id3_genre")
-            or DEFAULT_ID3_BY_TYPE.get(content_type)
-            or sub.replace("-", " ").title()
-        )
+            content_type = str(decision.get("content_type") or "music").lower()
+            if content_type not in CONTENT_TYPES:
+                content_type = "music"
 
-
-        bpm = _coerce_bpm(decision.get("bpm")) or bpm
-        musical_key = (str(decision.get("musical_key")).strip()
-                       if decision.get("musical_key") else None) or musical_key
+            if content_type in FORCED_TOP_BY_TYPE:
+                top = FORCED_TOP_BY_TYPE[content_type]
+            else:
+                top = slugify(decision.get("top_folder"), "unsorted")
+            sub = slugify(decision.get("sub_folder"), "general")
+            artist = safe_filename(decision.get("artist"), "Unknown Artist")
+            title = safe_filename(decision.get("title"), info.get("title") or "untitled")
+            id3_genre = (
+                decision.get("id3_genre")
+                or DEFAULT_ID3_BY_TYPE.get(content_type)
+                or sub.replace("-", " ").title()
+            )
+            bpm = _coerce_bpm(decision.get("bpm")) or bpm
+            musical_key = (str(decision.get("musical_key")).strip()
+                           if decision.get("musical_key") else None) or musical_key
 
         target_dir = base_root / top / sub
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -1508,6 +1524,7 @@ def download(req: DownloadRequest):
         "bpm": bpm,
         "musical_key": musical_key,
         "categorized": categorized,
+        "ai_error": ai_error,
         "replaced": replaced,
         "source_url": url,
         "model_used": req.model if categorized else None,

@@ -13,14 +13,14 @@ Download YouTube audio as MP3 (or video as MP4) into AI-categorized folders, the
 - A file-explorer page with folder navigation, playback with resume, rename, move, delete, re-categorize, and reveal in Finder.
 - A popup player that keeps playing after you close the popup.
 
-Everything runs on your machine. Nothing is hosted. You supply your own API key, or run a local model with Ollama for no key and no cost.
+Everything runs on your machine. Nothing is hosted. An API key is optional: without one, downloads still work and land in `unsorted/general`.
 
 ## Requirements
 
 - Python 3.10 or newer
 - ffmpeg (`brew install ffmpeg`, or `sudo apt install ffmpeg`)
 - Google Chrome
-- One of: an Anthropic API key, an OpenAI API key, or Ollama running locally
+- Optionally, for AI filing: an Anthropic API key, an OpenAI API key, or Ollama running locally
 
 macOS is the primary platform. The helper and extension work on Linux. The background-service script is macOS only.
 
@@ -41,7 +41,13 @@ Then load the extension:
 3. Click **Load unpacked** and pick the `extension/` folder.
 4. Pin **Crateful** to the toolbar.
 
-Then add your API key: click the Crateful icon, open **Settings**, pick a provider, paste the key, and click **Test**. Keys are written to `~/.ytd_dj/config.json`. You can also export `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the shell that starts the helper.
+### AI filing is optional
+
+Without a working key the tool still downloads. Files land in `unsorted/general`, named from the video's own metadata. The button says "Saved → unsorted/general (no AI)". The same happens if the provider rejects the key, rate limits you, or is down: nothing fails, the track just lands unsorted.
+
+Add a key later and use **Re-categorize** in the file browser to file those tracks properly.
+
+To add one: click the Crateful icon, open **Settings**, pick a provider, paste the key, and click **Test**. Keys are written to `~/.ytd_dj/config.json`. You can also export `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the shell that starts the helper.
 
 ## Use it
 
@@ -187,7 +193,7 @@ Changing the port also means editing `HELPER` in `extension/content.js`, `popup.
 | Symptom | Fix |
 | --- | --- |
 | "Helper not running" | Run `./install.sh`, or `helper/service.sh status`. |
-| "no API key" | Add a key on the Settings page and click Test. |
+| Everything lands in `unsorted/general` | No working AI key. Add one in Settings, or leave it and file by hand. |
 | "ffmpeg missing" | `brew install ffmpeg`, then restart the helper. |
 | Download fails with a yt-dlp error | Settings, then **Update yt-dlp**. |
 | "YouTube wants sign-in verification" | Set **Use cookies from browser** in Settings to a browser you are signed into YouTube with. YouTube throttles a machine that makes many requests, which a playlist run can trigger. |

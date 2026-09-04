@@ -105,7 +105,13 @@
     renderMain(null, (force ? "Replacing" : folder === null ? "Filing" : "Downloading") + "…");
     try {
       const data = await postDownload({ kind, folder, force, url });
-      renderMain("ok", `Saved → ${data.folder || "library"}`);
+      if (data.ai_error) {
+        mainBtn.title = `Saved to ${data.folder}. AI filing unavailable: ${data.ai_error}`;
+        renderMain("warn", `Saved → ${data.folder} (no AI)`);
+      } else {
+        mainBtn.title = `Saved at ${data.rel_path}`;
+        renderMain("ok", `Saved → ${data.folder || "library"}`);
+      }
       folderCache[kind] = null;
       existing[kind] = data.rel_path;
       setTimeout(setIdle, 2200);
@@ -178,14 +184,15 @@
 
     const have = skipExisting ? await alreadyHave(entries, kind) : new Set();
     const queue = entries.filter((e) => !have.has(e.video_id));
-    let done = 0, failed = 0;
+    let done = 0, failed = 0, unfiled = 0;
     const skipped = entries.length - queue.length;
 
     for (const entry of queue) {
       if (run.cancelled) break;
       renderMain("busy", `${done + failed + 1}/${queue.length}…`);
       try {
-        await postDownload({ kind, folder, force: false, url: entry.url });
+        const r = await postDownload({ kind, folder, force: false, url: entry.url });
+        if (r.ai_error) unfiled++;
         done++;
       } catch (e) {
         failed++;
@@ -197,6 +204,7 @@
     folderCache[kind] = null;
     const bits = [`${done} saved`];
     if (skipped) bits.push(`${skipped} already had`);
+    if (unfiled) bits.push(`${unfiled} unsorted`);
     if (failed) bits.push(`${failed} failed`);
     if (run.cancelled) bits.push("stopped");
     renderMain(failed || run.cancelled ? "err" : "ok", bits.join(", "));
