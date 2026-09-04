@@ -157,6 +157,16 @@
         <div class="actions">
           <span id="helper-version" class="muted">Checking...</span>
         </div>
+
+        <label>
+          <span>Use cookies from browser</span>
+          <select id="cookies-browser">
+            <option value="">Off</option>
+          </select>
+          <small class="muted">YouTube asks for sign-in verification once a machine makes enough
+          requests, which downloading a playlist tends to trigger. Pointing yt-dlp at a browser
+          you are signed into fixes it. macOS may ask for Keychain permission the first time.</small>
+        </label>
         <div class="actions">
           <button id="update-ytdlp">Update yt-dlp</button>
           <span id="ytdlp-status" class="muted"></span>

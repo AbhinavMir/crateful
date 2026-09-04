@@ -13,12 +13,18 @@
   const HELPER = "http://127.0.0.1:7531";
   const WRAP_ID = "crateful-buttons";
 
+  const isPlaylistPage = () => location.pathname.startsWith("/playlist");
+  const isWatchPage = () => location.pathname.startsWith("/watch");
+
   let menuEl = null;
   let wrapEl = null;
   let mainBtn = null;
   let caretBtn = null;
   let style = { ...CF_DEFAULT_STYLE };
   let playlistPromise = null;
+  // The in-flight playlist run, so a second click can stop it.
+  let running = null;
+  let playlistCache = null;
   // What the helper says already exists for this video: {audio, video}.
   let existing = { audio: null, video: null };
   const folderCache = { audio: null, video: null };
@@ -30,13 +36,35 @@
     return n;
   };
 
+  // YouTube keeps several copies of these components in the DOM and renders
+  // only one. querySelector returns the first, which is usually a zero-sized
+  // leftover, so match on what is actually laid out.
+  function firstVisible(selectors) {
+    for (const sel of selectors) {
+      for (const node of document.querySelectorAll(sel)) {
+        const r = node.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && node.offsetParent !== null) return node;
+      }
+    }
+    return null;
+  }
+
+  const PLAYLIST_ANCHORS = [
+    ".ytFlexibleActionsViewModelActionRow",
+    "yt-flexible-actions-view-model",
+    "ytd-playlist-header-renderer #top-level-buttons-computed",
+    ".metadata-buttons-wrapper",
+    "ytd-playlist-sidebar-primary-info-renderer #menu",
+  ];
+  const WATCH_ANCHORS = [
+    "#top-level-buttons-computed",
+    "ytd-menu-renderer #top-level-buttons-computed",
+    "#actions #actions-inner",
+    "#actions-inner",
+  ];
+
   function findAnchor() {
-    return (
-      document.querySelector("#top-level-buttons-computed") ||
-      document.querySelector("ytd-menu-renderer #top-level-buttons-computed") ||
-      document.querySelector("#actions #actions-inner") ||
-      document.querySelector("#actions-inner")
-    );
+    return firstVisible(isPlaylistPage() ? PLAYLIST_ANCHORS : WATCH_ANCHORS);
   }
 
   // --- button face ----------------------------------------------------------
@@ -55,6 +83,12 @@
 
   function setIdle() {
     mainBtn.disabled = false;
+    if (isPlaylistPage()) {
+      const n = playlistCache?.count;
+      mainBtn.title = "Download every video in this playlist, each filed on its own";
+      renderMain(null, n ? `${style.label} ${n}` : style.label);
+      return;
+    }
     const done = existing.audio || existing.video;
     if (done) {
       mainBtn.title = `Already downloaded: ${done}. Click to show in Finder.`;
@@ -124,27 +158,65 @@
     setTimeout(setIdle, isYtDlp || isDown ? 8000 : 4000);
   }
 
-  // One video at a time, so progress is real and a single bad entry does not
-  // sink the rest of the playlist.
-  async function downloadPlaylist(entries, kind) {
+  // Which of these videos the library already holds, so a re-run resumes
+  // instead of downloading everything a second time.
+  async function alreadyHave(entries, kind) {
+    try {
+      const res = await fetch(`${HELPER}/check-bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_ids: entries.map((e) => e.video_id) }),
+      });
+      if (!res.ok) return new Set();
+      const d = await res.json();
+      return new Set(
+        Object.entries(d.found || {})
+          .filter(([, kinds]) => kinds[kind])
+          .map(([vid]) => vid),
+      );
+    } catch {
+      return new Set();
+    }
+  }
+
+  // One video at a time. Progress is real, a single bad entry does not sink
+  // the rest, and each track is filed on its own like any single download.
+  async function downloadPlaylist(entries, { kind = "audio", folder = null, skipExisting = true } = {}) {
     closeMenu();
-    mainBtn.disabled = true;
+    if (running) { running.cancelled = true; return; }
+
+    const run = { cancelled: false };
+    running = run;
+    mainBtn.disabled = false;               // stays clickable, to cancel
+    mainBtn.title = "Click to stop after the current track";
+
+    const have = skipExisting ? await alreadyHave(entries, kind) : new Set();
+    const queue = entries.filter((e) => !have.has(e.video_id));
     let done = 0, failed = 0;
-    for (const entry of entries) {
-      renderMain(null, `${done + failed + 1}/${entries.length}…`);
+    const skipped = entries.length - queue.length;
+
+    for (const entry of queue) {
+      if (run.cancelled) break;
+      renderMain("busy", `${done + failed + 1}/${queue.length}…`);
       try {
-        await postDownload({ kind, folder: null, force: false, url: entry.url });
+        await postDownload({ kind, folder, force: false, url: entry.url });
         done++;
       } catch (e) {
         failed++;
         console.warn("[Crateful] playlist entry failed", entry.url, e);
       }
     }
+
+    running = null;
     folderCache[kind] = null;
-    renderMain(failed ? "err" : "ok",
-               failed ? `${done} saved, ${failed} failed` : `Saved ${done}`);
+    const bits = [`${done} saved`];
+    if (skipped) bits.push(`${skipped} already had`);
+    if (failed) bits.push(`${failed} failed`);
+    if (run.cancelled) bits.push("stopped");
+    renderMain(failed || run.cancelled ? "err" : "ok", bits.join(", "));
     mainBtn.disabled = false;
-    setTimeout(setIdle, 5000);
+    refreshExisting();
+    setTimeout(setIdle, 6000);
   }
 
   // --- helper lookups -------------------------------------------------------
@@ -164,9 +236,10 @@
   function primePlaylist() {
     playlistPromise = null;
     if (!/[?&]list=/.test(location.href)) return;
+    const listUrl = location.href;
     playlistPromise = (async () => {
       try {
-        const res = await fetch(`${HELPER}/playlist?url=${encodeURIComponent(location.href)}`);
+        const res = await fetch(`${HELPER}/playlist?url=${encodeURIComponent(listUrl)}`);
         if (!res.ok) return null;
         const d = await res.json();
         return d.is_playlist ? d : null;
@@ -174,6 +247,10 @@
         return null;
       }
     })();
+    playlistPromise.then((p) => {
+      playlistCache = p;
+      if (mainBtn && !running) setIdle();
+    });
   }
 
   async function refreshExisting() {
@@ -257,7 +334,7 @@
     function renderList(data, query) {
       list.replaceChildren();
       const q = (query || "").toLowerCase().trim();
-      const have = existing[root];
+      const have = isPlaylistPage() ? null : existing[root];
 
       if (have && !q) {
         list.appendChild(el("div", "cf-head", "Already downloaded"));
@@ -275,20 +352,42 @@
         list.appendChild(el("div", "cf-head", "Playlist"));
         list.appendChild(actionRow(
           "cf-playlist",
-          `Download all ${playlist.count}`,
-          () => downloadPlaylist(playlist.entries, root),
+          `Download all ${playlist.count}, AI filed`,
+          () => downloadPlaylist(playlist.entries, { kind: root }),
           playlist.title || undefined,
+        ));
+        list.appendChild(actionRow(
+          "cf-playlist-all",
+          `Download all ${playlist.count}, including ones I have`,
+          () => downloadPlaylist(playlist.entries, { kind: root, skipExisting: false }),
+          "Skips nothing",
         ));
       }
 
-      if (!q) list.appendChild(el("div", "cf-head", have ? "Download again to" : "Download to"));
-      list.appendChild(actionRow("cf-ai", "Let AI pick the folder",
-                                 () => download({ kind: root, force: !!have })));
+      // On a playlist page every folder choice applies to the whole playlist.
+      const forPlaylist = isPlaylistPage() && playlist;
+      const pick = (folder) => (forPlaylist
+        ? downloadPlaylist(playlist.entries, { kind: root, folder })
+        : download({ kind: root, folder, force: !!have }));
+
+      if (isPlaylistPage() && !playlist) {
+        if (!q) list.appendChild(el("div", "cf-empty", "No playlist found on this page."));
+        return;
+      }
+
+      if (!q) {
+        list.appendChild(el("div", "cf-head",
+          forPlaylist ? "Put the whole playlist in" : have ? "Download again to" : "Download to"));
+      }
+      if (!forPlaylist) {
+        list.appendChild(actionRow("cf-ai", "Let AI pick the folder",
+                                   () => download({ kind: root, force: !!have })));
+      }
 
       const matches = (f) => !q || f.toLowerCase().includes(q);
       const recent = data.recent.filter(matches);
       const rest = data.folders.filter((f) => matches(f) && !recent.includes(f));
-      const folderRow = (f) => actionRow("", f, () => download({ kind: root, folder: f, force: !!have }));
+      const folderRow = (f) => actionRow("", f, () => pick(f));
 
       if (recent.length) {
         list.appendChild(el("div", "cf-head", "Recent"));
@@ -300,7 +399,7 @@
       }
       if (!recent.length && !rest.length && q) {
         list.appendChild(actionRow("cf-new", `Create "${q}" and download here`,
-                                   () => download({ kind: root, folder: q, force: !!have })));
+                                   () => pick(q)));
       }
     }
 
@@ -362,7 +461,7 @@
   // --- injection ------------------------------------------------------------
 
   function injectButtons() {
-    if (!location.href.includes("youtube.com/watch")) return;
+    if (!isWatchPage() && !isPlaylistPage()) return;
     if (document.getElementById(WRAP_ID)) return;
     const anchor = findAnchor();
     if (!anchor) return;
@@ -374,6 +473,11 @@
     mainBtn = el("button", "cf-btn cf-main");
     mainBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (running) { running.cancelled = true; return; }
+      if (isPlaylistPage()) {
+        if (playlistCache) downloadPlaylist(playlistCache.entries, { kind: "audio" });
+        return;
+      }
       const done = existing.audio || existing.video;
       if (done) {
         reveal(existing.audio ? "audio" : "video", done);
@@ -394,7 +498,7 @@
     wrapEl.append(mainBtn, caretBtn);
     anchor.appendChild(wrapEl);
     setIdle();
-    refreshExisting();
+    if (!isPlaylistPage()) refreshExisting();
     primePlaylist();
   }
 
@@ -414,6 +518,7 @@
       folderCache.audio = folderCache.video = null;
       existing = { audio: null, video: null };
       playlistPromise = null;
+      playlistCache = null;
     }
     injectButtons();
   });

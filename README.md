@@ -53,7 +53,13 @@ Then add your API key: click the Crateful icon, open **Settings**, pick a provid
 
 Once a video is downloaded the button turns green. Click it to show the file in Finder. The **⋮** menu then also lists where the file went, with **Open in Finder**, and a **Download again** that replaces the old file rather than leaving a second copy beside it.
 
-Open a video from a playlist and the menu offers to download the whole playlist. Entries are fetched one at a time, so the button counts progress and a single failed video does not sink the rest.
+### Playlists
+
+The button also appears on a playlist page, next to Play all, reading **Download 41** or however many the playlist holds. Each video is downloaded and filed on its own, exactly as a single download would be, so a playlist of mixed genres spreads across the folders it belongs in rather than landing in one heap.
+
+Videos already in your library are skipped, so re-running a playlist resumes rather than starting over. The menu also offers a run that skips nothing. Click the button while a run is going to stop it after the current track. The **⋮** menu can send the whole playlist to one folder instead of letting the AI file each track.
+
+The same options appear on a watch page opened from a playlist.
 
 The button's look is yours: **Settings** has a label field, background, text and border colours, a corner-radius slider, and a toggle for the crate icon, with four presets to start from. Saving updates every open YouTube tab straight away.
 
@@ -135,6 +141,7 @@ Logs go to `~/.ytd_dj/helper.log`.
 | POST | `/test-key` | check a provider key or the Ollama URL |
 | POST | `/download` | `{url, kind: audio\|video, model?, folder?, force?}` |
 | GET | `/playlist?url=` | list a playlist's videos, without downloading |
+| POST | `/check-bulk` | which of these video ids are already saved |
 | GET | `/check?url=` | is this video already downloaded |
 | GET | `/library?root=` | flat list of every file |
 | GET | `/browse?root=&path=` | one folder, with playback state |
@@ -167,6 +174,7 @@ Every `path` parameter is resolved against the configured root, so a path cannot
 | Provider and model | Settings page | Anthropic, `claude-sonnet-4-6` |
 | API keys | Settings page, or env vars | none |
 | Categorization prompt | Settings page | built-in prompt |
+| Cookies from browser | Settings page, or `cookies_from_browser` | off |
 | Config directory | `YTD_DJ_HOME` env var | `~/.ytd_dj` |
 | Port | `YTD_DJ_PORT` env var | 7531 |
 
@@ -182,6 +190,7 @@ Changing the port also means editing `HELPER` in `extension/content.js`, `popup.
 | "no API key" | Add a key on the Settings page and click Test. |
 | "ffmpeg missing" | `brew install ffmpeg`, then restart the helper. |
 | Download fails with a yt-dlp error | Settings, then **Update yt-dlp**. |
+| "YouTube wants sign-in verification" | Set **Use cookies from browser** in Settings to a browser you are signed into YouTube with. YouTube throttles a machine that makes many requests, which a playlist run can trigger. |
 | No buttons on YouTube | YouTube renamed its DOM. Adjust `findAnchor()` in `extension/content.js`. |
 | Helper stops after a Homebrew Python upgrade | `helper/run.sh` rebuilds the venv by itself. Run `helper/service.sh restart`. |
 | Files on disk are missing from the library | `curl -X POST http://127.0.0.1:7531/db/backfill` |
@@ -203,6 +212,7 @@ cd helper
 - Categorization is only as good as the YouTube metadata. Fix folders by hand, or use **Re-categorize** after editing the prompt.
 - Each download costs one AI request. Ollama makes that free.
 - Downloads run one at a time and block until finished. There is no queue, so a large playlist holds the button for its whole run.
+- A long playlist run can trip YouTube's bot check. Cookies from a signed-in browser are the fix, and the setting only helps if that browser is actually signed in.
 - Picking a folder yourself skips the model, so the artist and title come from a plain text split of the video title. Expect the AI path to name files better.
 
 ## License

@@ -183,3 +183,47 @@ def test_previous_download_path_needs_a_real_file(client, roots, main_module):
     touch(roots["audio"] / "gone/x.mp3")
     assert main_module.previous_download_path("audio", "dQw4w9WgXcQ").name == "x.mp3"
     assert main_module.previous_download_path("audio", None) is None
+
+
+# --- bulk check, used by the playlist page ---------------------------------
+
+def test_check_bulk_reports_only_files_on_disk(client, roots, main_module):
+    touch(roots["audio"] / "house/a.mp3")
+    touch(roots["video"] / "house/a.mp4")
+    main_module.record_download("aaaaaaaaaaa", "audio", "house/a.mp3")
+    main_module.record_download("aaaaaaaaaaa", "video", "house/a.mp4")
+    main_module.record_download("bbbbbbbbbbb", "audio", "gone.mp3")   # not on disk
+
+    body = client.post("/check-bulk",
+                       json={"video_ids": ["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"]}).json()
+    assert body["count"] == 1
+    assert body["found"] == {"aaaaaaaaaaa": {"audio": "house/a.mp3", "video": "house/a.mp4"}}
+
+
+def test_check_bulk_with_no_ids(client, roots):
+    body = client.post("/check-bulk", json={"video_ids": []}).json()
+    assert body == {"found": {}, "count": 0}
+
+
+def test_check_bulk_is_capped(client, roots, main_module):
+    touch(roots["audio"] / "x.mp3")
+    main_module.record_download("zzzzzzzzzzz", "audio", "x.mp3")
+    ids = [f"{i:011d}" for i in range(600)] + ["zzzzzzzzzzz"]
+    body = client.post("/check-bulk", json={"video_ids": ids}).json()
+    # The known id sits past the 500 cap, so it is not looked at.
+    assert body["count"] == 0
+
+
+def test_metadata_bot_error_is_also_friendly(client, roots, main_module, monkeypatch):
+    class Blocked:
+        def __init__(self, opts): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def extract_info(self, url, download=False):
+            raise RuntimeError("ERROR: [youtube] x: Sign in to confirm you're not a bot.")
+
+    monkeypatch.setattr(main_module.yt_dlp, "YoutubeDL", Blocked)
+    monkeypatch.setattr(main_module.shutil, "which", lambda n: "/usr/bin/" + n)
+    r = client.post("/download", json={"url": URL, "kind": "audio", "folder": "x"})
+    assert r.status_code == 400
+    assert "Settings" in r.json()["detail"]

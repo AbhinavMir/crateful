@@ -42,6 +42,10 @@ DEFAULT_MODEL_BY_PROVIDER = {
 }
 SUPPORTED_PROVIDERS = set(DEFAULT_MODEL_BY_PROVIDER.keys())
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
+# yt-dlp can read YouTube cookies straight out of a local browser profile.
+# YouTube asks for sign-in verification once a machine makes enough requests,
+# which downloading a playlist reliably triggers, and cookies are the fix.
+SUPPORTED_COOKIE_BROWSERS = {"chrome", "chromium", "brave", "edge", "firefox", "safari", "opera", "vivaldi"}
 REPO = "AbhinavMir/crateful"
 REMOTE_VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
 
@@ -55,10 +59,9 @@ YOUTUBE_ID_RE = re.compile(
 
 # noplaylist is belt and braces: canonical_url already drops `&list=`, but a
 # link we cannot parse is passed through as-is and must never pull a playlist.
-YDL_INFO_OPTS = {
+YDL_BASE_OPTS = {
     "quiet": True,
     "no_warnings": True,
-    "skip_download": True,
     "noplaylist": True,
 }
 
@@ -119,6 +122,7 @@ class ConfigUpdate(BaseModel):
     openai_api_key: str | None = None
     ollama_url: str | None = None
     categorize_prompt: str | None = None
+    cookies_from_browser: str | None = None
 
 
 class TestKeyRequest(BaseModel):
@@ -155,6 +159,10 @@ class MoveRequest(BaseModel):
 class CreateFolderRequest(BaseModel):
     root: str
     path: str
+
+
+class BulkCheckRequest(BaseModel):
+    video_ids: list[str]
 
 
 class ReclassifyRequest(BaseModel):
@@ -207,6 +215,9 @@ def read_config() -> dict:
     anthropic_key = pick("anthropic_api_key", "ANTHROPIC_API_KEY")
     openai_key = pick("openai_api_key", "OPENAI_API_KEY")
     ollama_url = pick("ollama_url", "OLLAMA_URL") or DEFAULT_OLLAMA_URL
+    cookies_browser = (pick("cookies_from_browser", "COOKIES_FROM_BROWSER") or "").lower().strip()
+    if cookies_browser not in SUPPORTED_COOKIE_BROWSERS:
+        cookies_browser = ""
 
     # Env overrides
     if os.environ.get("ANTHROPIC_API_KEY"):
@@ -231,6 +242,7 @@ def read_config() -> dict:
         "anthropic_api_key": anthropic_key,
         "openai_api_key": openai_key,
         "ollama_url": ollama_url,
+        "cookies_from_browser": cookies_browser,
     }
 
 
@@ -568,6 +580,15 @@ def extract_video_id(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+def ydl_opts(**extra) -> dict:
+    """yt-dlp options with the user's cookie setting folded in."""
+    opts = {**YDL_BASE_OPTS, **extra}
+    browser = read_config().get("cookies_from_browser")
+    if browser:
+        opts["cookiesfrombrowser"] = (browser,)
+    return opts
+
+
 def canonical_url(url: str) -> str:
     """Reduce a YouTube link to just its video.
 
@@ -607,6 +628,15 @@ def record_download(video_id: str | None, kind: str, rel_path: str) -> None:
     write_history(hist)
 
 
+def friendly_ydl_error(e: Exception) -> str:
+    """Turn yt-dlp's wall of text into something a user can act on."""
+    msg = str(e)
+    if "not a bot" in msg or "cookies" in msg.lower():
+        return ("YouTube wants sign-in verification from this machine. "
+                "Set 'Use cookies from browser' in Settings.")
+    return msg
+
+
 def previous_download_path(kind: str, video_id: str | None) -> Path | None:
     """Where this exact video was saved last time, if it is still on disk."""
     if not video_id:
@@ -625,14 +655,12 @@ def playlist_info(url: str = Query(...), limit: int = Query(200, ge=1, le=500)):
     The extension walks this list and calls /download once per entry, so a
     playlist reuses the single-video path and can report progress as it goes.
     """
-    opts = dict(YDL_INFO_OPTS)
-    opts["noplaylist"] = False
-    opts["extract_flat"] = "in_playlist"
+    opts = ydl_opts(skip_download=True, noplaylist=False, extract_flat="in_playlist")
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
-        raise HTTPException(400, f"yt-dlp failed: {e}") from e
+        raise HTTPException(400, f"yt-dlp failed: {friendly_ydl_error(e)}") from e
 
     entries = info.get("entries")
     if not entries:
@@ -1067,6 +1095,8 @@ def get_config():
         "has_openai_key": bool(cfg["openai_api_key"]),
         "ollama_url": cfg["ollama_url"],
         "default_ollama_url": DEFAULT_OLLAMA_URL,
+        "cookies_from_browser": cfg["cookies_from_browser"],
+        "supported_cookie_browsers": sorted(SUPPORTED_COOKIE_BROWSERS),
         "categorize_prompt": raw.get("categorize_prompt") or "",
         "default_prompt": CATEGORIZE_SYSTEM,
         "supported_providers": sorted(SUPPORTED_PROVIDERS),
@@ -1080,6 +1110,12 @@ def get_config():
 @app.put("/config")
 def put_config(req: ConfigUpdate):
     updates = req.model_dump(exclude_unset=True)
+
+    if "cookies_from_browser" in updates and updates["cookies_from_browser"]:
+        value = updates["cookies_from_browser"].lower().strip()
+        if value not in SUPPORTED_COOKIE_BROWSERS:
+            raise HTTPException(400, f"Unsupported browser: {updates['cookies_from_browser']}")
+        updates["cookies_from_browser"] = value
 
     if "provider" in updates and updates["provider"]:
         if updates["provider"].lower() not in SUPPORTED_PROVIDERS:
@@ -1317,10 +1353,10 @@ def download(req: DownloadRequest):
 
     url = canonical_url(req.url)
     try:
-        with yt_dlp.YoutubeDL(YDL_INFO_OPTS) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts(skip_download=True)) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
-        raise HTTPException(400, f"yt-dlp failed: {e}") from e
+        raise HTTPException(400, f"yt-dlp failed: {friendly_ydl_error(e)}") from e
     if info.get("_type") == "playlist" or info.get("entries"):
         # canonical_url should have stripped the list parameter already. If a
         # link still resolves to a playlist we refuse rather than quietly
@@ -1393,38 +1429,32 @@ def download(req: DownloadRequest):
 
     if kind == "audio":
         final_path = unique_path(target_dir, base, "mp3")
-        ydl_opts = {
-            "noplaylist": True,
-            "format": "bestaudio/best",
-            "outtmpl": str(final_path.with_suffix("")) + ".%(ext)s",
-            "quiet": True,
-            "no_warnings": True,
-            "postprocessors": [
+        opts = ydl_opts(
+            format="bestaudio/best",
+            outtmpl=str(final_path.with_suffix("")) + ".%(ext)s",
+            postprocessors=[
                 {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
                     "preferredquality": "320",
                 }
             ],
-        }
+        )
         glob_ext = "mp3"
     else:  # video
         final_path = unique_path(target_dir, base, "mp4")
-        ydl_opts = {
-            "noplaylist": True,
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "merge_output_format": "mp4",
-            "outtmpl": str(final_path.with_suffix("")) + ".%(ext)s",
-            "quiet": True,
-            "no_warnings": True,
-        }
+        opts = ydl_opts(
+            format="bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            merge_output_format="mp4",
+            outtmpl=str(final_path.with_suffix("")) + ".%(ext)s",
+        )
         glob_ext = "mp4"
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
     except Exception as e:
-        raise HTTPException(500, f"yt-dlp download failed: {e}") from e
+        raise HTTPException(500, f"yt-dlp download failed: {friendly_ydl_error(e)}") from e
 
     if not final_path.exists():
         candidates = list(target_dir.glob(f"{base}*.{glob_ext}"))
@@ -1499,6 +1529,28 @@ def check(url: str = Query(...)):
             hist.pop(vid, None)
         write_history(hist)
     return result
+
+
+@app.post("/check-bulk")
+def check_bulk(req: BulkCheckRequest):
+    """Which of these videos are already in the library.
+
+    A playlist page asks about every entry at once. One request beats one per
+    video, and it lets the extension skip what it already has.
+    """
+    hist = read_history()
+    roots = get_roots()
+    out: dict[str, dict] = {}
+    for vid in req.video_ids[:500]:
+        entry = hist.get(vid) or {}
+        found = {}
+        for kind, root in roots.items():
+            rel = entry.get(kind)
+            if rel and (root / rel).exists():
+                found[kind] = rel
+        if found:
+            out[vid] = found
+    return {"found": out, "count": len(out)}
 
 
 @app.get("/library")
@@ -1778,10 +1830,10 @@ def reclassify(req: ReclassifyRequest):
 
     source_url = record["source_url"]
     try:
-        with yt_dlp.YoutubeDL(YDL_INFO_OPTS) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts(skip_download=True)) as ydl:
             info = ydl.extract_info(canonical_url(source_url), download=False)
     except Exception as e:
-        raise HTTPException(400, f"yt-dlp failed: {e}") from e
+        raise HTTPException(400, f"yt-dlp failed: {friendly_ydl_error(e)}") from e
 
     base_root = root_for(req.root)
     try:

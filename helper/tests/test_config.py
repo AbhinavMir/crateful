@@ -93,3 +93,43 @@ def test_status_reports_key_presence(client, home, roots):
     cfg["provider"] = "anthropic"
     (home / "config.json").write_text(json.dumps(cfg))
     assert client.get("/status").json()["has_api_key"] is False
+
+
+# --- cookies from browser ---------------------------------------------------
+
+def test_cookie_browser_defaults_to_off(home, main_module):
+    (home / "config.json").write_text("{}")
+    assert main_module.read_config()["cookies_from_browser"] == ""
+    assert "cookiesfrombrowser" not in main_module.ydl_opts()
+
+
+def test_cookie_browser_is_passed_to_yt_dlp(home, main_module):
+    (home / "config.json").write_text(json.dumps({"cookies_from_browser": "Chrome"}))
+    assert main_module.read_config()["cookies_from_browser"] == "chrome"
+    assert main_module.ydl_opts()["cookiesfrombrowser"] == ("chrome",)
+
+
+def test_unknown_cookie_browser_is_ignored(home, main_module):
+    (home / "config.json").write_text(json.dumps({"cookies_from_browser": "netscape"}))
+    assert main_module.read_config()["cookies_from_browser"] == ""
+
+
+def test_put_config_rejects_unknown_browser(client):
+    r = client.put("/config", json={"cookies_from_browser": "netscape"})
+    assert r.status_code == 400
+
+
+def test_ydl_opts_keeps_the_base_settings(main_module):
+    opts = main_module.ydl_opts(skip_download=True)
+    assert opts["noplaylist"] is True
+    assert opts["quiet"] is True
+    assert opts["skip_download"] is True
+
+
+def test_bot_error_points_at_the_setting(main_module):
+    msg = main_module.friendly_ydl_error(
+        RuntimeError("ERROR: [youtube] abc: Sign in to confirm you're not a bot. Use --cookies-from-browser"))
+    assert "Settings" in msg
+    assert "not a bot" not in msg
+    plain = main_module.friendly_ydl_error(RuntimeError("Video unavailable"))
+    assert plain == "Video unavailable"

@@ -29,6 +29,7 @@ async function load() {
     $("video-root").value = cfg.video_root || "";
     $("model").value = cfg.model || "";
     $("ollama-url").value = cfg.ollama_url || "";
+    fillCookieBrowsers(cfg.supported_cookie_browsers || [], cfg.cookies_from_browser || "");
 
     renderProviderRadios(cfg.provider);
     updateModelHint();
@@ -79,6 +80,22 @@ function renderProviderRadios(active) {
   }
 }
 
+function fillCookieBrowsers(names, active) {
+  const sel = $("cookies-browser");
+  sel.replaceChildren();
+  const off = document.createElement("option");
+  off.value = "";
+  off.textContent = "Off";
+  sel.appendChild(off);
+  for (const n of names) {
+    const o = document.createElement("option");
+    o.value = n;
+    o.textContent = n.charAt(0).toUpperCase() + n.slice(1);
+    sel.appendChild(o);
+  }
+  sel.value = active;
+}
+
 function updateModelHint() {
   const hint = $("model-hint");
   const def = defaultModels[currentProvider];
@@ -115,6 +132,7 @@ async function save() {
 
   const ollUrl = $("ollama-url").value.trim();
   body.ollama_url = ollUrl || "";
+  body.cookies_from_browser = $("cookies-browser").value || "";
 
   const promptValue = $("prompt").value;
   if (!promptValue.trim() || promptValue.trim() === defaultPrompt.trim()) {

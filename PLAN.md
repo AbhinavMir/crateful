@@ -41,6 +41,13 @@ Goal: make Crateful safe and reliable for people who install it from GitHub.
 - The menu shows what already exists for the video, with Open in Finder and Download again.
 - The button is fully customisable in Settings: label, colours, corner radius, crate icon, four presets. Stored in `chrome.storage.local` and applied live through `storage.onChanged`.
 
+## Phase 6: playlist pages (done)
+
+- The content script now runs on `/playlist` as well as `/watch`, and the button sits in the playlist header next to Play all.
+- Anchors are chosen by first *visible* match. YouTube keeps several copies of these components in the DOM and renders one; `querySelector` was returning a zero-sized leftover.
+- Each entry downloads and is filed on its own. `POST /check-bulk` reports which entries already exist so a re-run resumes, and clicking the button mid-run stops it after the current track.
+- `cookies_from_browser` passes browser cookies to yt-dlp. YouTube demands sign-in verification once a machine makes enough requests, and a playlist run triggers it. yt-dlp errors about it now name the setting instead of printing the raw wall of text.
+
 ## Later
 
 - Split `helper/main.py` (1449 lines) into modules.
