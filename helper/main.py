@@ -613,6 +613,13 @@ def ydl_opts(**extra) -> dict:
     return opts
 
 
+MIX_LIST_RE = re.compile(r"[?&]list=(RD|UL|OL)[A-Za-z0-9_-]*")
+
+
+def is_mix_url(url: str) -> bool:
+    return bool(MIX_LIST_RE.search(url or ""))
+
+
 def canonical_url(url: str) -> str:
     vid = extract_video_id(url)
     return f"https://www.youtube.com/watch?v={vid}" if vid else url
@@ -663,8 +670,13 @@ def previous_download_path(kind: str, video_id: str | None) -> Path | None:
 
 
 @app.get("/playlist")
-def playlist_info(url: str = Query(...), limit: int = Query(200, ge=1, le=500)):
-    opts = ydl_opts(skip_download=True, noplaylist=False, extract_flat="in_playlist")
+def playlist_info(url: str = Query(...), limit: int = Query(50, ge=1, le=500)):
+    opts = ydl_opts(
+        skip_download=True,
+        noplaylist=False,
+        extract_flat="in_playlist",
+        playlistend=limit,
+    )
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -673,7 +685,7 @@ def playlist_info(url: str = Query(...), limit: int = Query(200, ge=1, le=500)):
 
     entries = info.get("entries")
     if not entries:
-        return {"is_playlist": False, "title": None, "count": 0, "entries": []}
+        return {"is_playlist": False, "is_mix": False, "title": None, "count": 0, "entries": []}
 
     out = []
     for entry in entries:
@@ -692,6 +704,7 @@ def playlist_info(url: str = Query(...), limit: int = Query(200, ge=1, le=500)):
             break
     return {
         "is_playlist": True,
+        "is_mix": is_mix_url(url),
         "title": info.get("title"),
         "count": len(out),
         "truncated": len(out) >= limit,

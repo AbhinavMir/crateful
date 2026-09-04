@@ -332,16 +332,18 @@
         list.appendChild(el("div", "cf-head", "Playlist"));
         list.appendChild(el("div", "cf-empty cf-pending", "Checking playlist…"));
       } else if (playlist && !q) {
-        list.appendChild(el("div", "cf-head", "Playlist"));
+        const what = playlist.is_mix ? "Mix" : "Playlist";
+        const many = playlist.truncated ? `first ${playlist.count}` : `all ${playlist.count}`;
+        list.appendChild(el("div", "cf-head", what));
         list.appendChild(actionRow(
           "cf-playlist",
-          `Download all ${playlist.count}, AI filed`,
+          `Download ${many}, AI filed`,
           () => downloadPlaylist(playlist.entries, { kind: root }),
           playlist.title || undefined,
         ));
         list.appendChild(actionRow(
           "cf-playlist-all",
-          `Download all ${playlist.count}, including ones I have`,
+          `Download ${many}, including ones I have`,
           () => downloadPlaylist(playlist.entries, { kind: root, skipExisting: false }),
           "Skips nothing",
         ));
@@ -359,7 +361,7 @@
 
       if (!q) {
         list.appendChild(el("div", "cf-head",
-          forPlaylist ? "Put the whole playlist in" : have ? "Download again to" : "Download to"));
+          forPlaylist ? (playlist?.is_mix ? "Put the whole mix in" : "Put the whole playlist in") : have ? "Download again to" : "Download to"));
       }
       if (!forPlaylist) {
         list.appendChild(actionRow("cf-ai", "Let AI pick the folder",

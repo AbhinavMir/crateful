@@ -65,7 +65,7 @@ The button also appears on a playlist page, next to Play all, reading **Download
 
 Videos already in your library are skipped, so re-running a playlist resumes rather than starting over. The menu also offers a run that skips nothing. Click the button while a run is going to stop it after the current track. The **⋮** menu can send the whole playlist to one folder instead of letting the AI file each track.
 
-The same options appear on a watch page opened from a playlist.
+The same options appear on a watch page opened from a playlist, and on a Mix. A Mix is the endless radio YouTube builds around a track, so the menu offers its first 50 entries and says so.
 
 The button's look is yours: **Settings** has a label field, background, text and border colours, a corner-radius slider, and a toggle for the crate icon, with four presets to start from. Saving updates every open YouTube tab straight away.
 
