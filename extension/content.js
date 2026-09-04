@@ -11,14 +11,24 @@
   });
 
   const HELPER = "http://127.0.0.1:7531";
-  const WRAP_ID = "ytd-dj-buttons";
-  const MENU_ID = "crateful-menu";
+  const WRAP_ID = "crateful-buttons";
 
   let menuEl = null;
+  let wrapEl = null;
   let mainBtn = null;
   let caretBtn = null;
-  // Cached folder lists, keyed by root. Refreshed each time the menu opens.
+  let style = { ...CF_DEFAULT_STYLE };
+  let playlistPromise = null;
+  // What the helper says already exists for this video: {audio, video}.
+  let existing = { audio: null, video: null };
   const folderCache = { audio: null, video: null };
+
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
 
   function findAnchor() {
     return (
@@ -29,25 +39,30 @@
     );
   }
 
-  function setState(btn, state, text) {
-    btn.className = btn.dataset.baseClass + (state ? " ytd-dj-" + state : "");
-    btn.textContent = text;
+  // --- button face ----------------------------------------------------------
+
+  function renderMain(state, text) {
+    mainBtn.className = "cf-btn cf-main" + (state ? " cf-" + state : "");
+    mainBtn.replaceChildren();
+    if (style.icon && !state) {
+      const img = el("img", "cf-icon");
+      img.src = chrome.runtime.getURL("icons/icon-32.png");
+      img.alt = "";
+      mainBtn.appendChild(img);
+    }
+    mainBtn.appendChild(el("span", "cf-label", text));
   }
 
   function setIdle() {
-    delete mainBtn.dataset.downloadedPath;
-    delete mainBtn.dataset.downloadedRoot;
-    mainBtn.title = "Download audio, filed by AI";
     mainBtn.disabled = false;
-    setState(mainBtn, null, "Download");
-  }
-
-  function setDownloaded(root, relPath) {
-    mainBtn.dataset.downloadedPath = relPath;
-    mainBtn.dataset.downloadedRoot = root;
-    mainBtn.disabled = false;
-    mainBtn.title = `Saved at ${relPath} — click to show in Finder`;
-    setState(mainBtn, "done", "Downloaded");
+    const done = existing.audio || existing.video;
+    if (done) {
+      mainBtn.title = `Already downloaded: ${done}. Click to show in Finder.`;
+      renderMain("done", "Downloaded");
+    } else {
+      mainBtn.title = `${style.label} audio, filed by AI`;
+      renderMain(null, style.label);
+    }
   }
 
   async function reveal(root, path) {
@@ -59,67 +74,121 @@
     }
   }
 
-  // --- the download itself --------------------------------------------------
+  // --- downloading ----------------------------------------------------------
 
-  // `folder` null means let the AI file it. A string means put it exactly there.
-  async function download({ kind = "audio", folder = null } = {}) {
+  // folder null means let the AI file it; a string puts it exactly there.
+  async function download({ kind = "audio", folder = null, force = false, url = null } = {}) {
     closeMenu();
     mainBtn.disabled = true;
-    const verb = folder === null ? "Filing" : "Downloading";
-    setState(mainBtn, null, `${verb}…`);
+    renderMain(null, (force ? "Replacing" : folder === null ? "Filing" : "Downloading") + "…");
     try {
-      const body = { url: location.href, kind };
-      if (folder !== null) body.folder = folder;
-      const res = await fetch(`${HELPER}/download`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const text = await res.text();
-      if (!res.ok) {
-        let msg = text;
-        try { msg = JSON.parse(text).detail || text; } catch (_) {}
-        throw new Error(msg);
-      }
-      const data = JSON.parse(text);
-      setState(mainBtn, "ok", `Saved → ${data.folder || "library"}`);
-      folderCache[kind] = null; // a new folder may exist now
-      setTimeout(() => setDownloaded(data.kind, data.rel_path), 2200);
+      const data = await postDownload({ kind, folder, force, url });
+      renderMain("ok", `Saved → ${data.folder || "library"}`);
+      folderCache[kind] = null; // the folder list may have grown
+      existing[kind] = data.rel_path;
+      setTimeout(setIdle, 2200);
     } catch (e) {
-      const msg = e.message || String(e);
-      const isYtDlp = /yt-dlp/i.test(msg);
-      const isHelperDown = /failed to fetch|networkerror/i.test(msg);
-      mainBtn.title = msg;
-      setState(
-        mainBtn,
-        "err",
-        isYtDlp ? "yt-dlp failed — update in Settings"
-          : isHelperDown ? "Helper not running"
-          : msg.length > 46 ? msg.slice(0, 43) + "…" : msg,
-      );
-      setTimeout(setIdle, isYtDlp || isHelperDown ? 8000 : 4000);
+      showError(e);
     } finally {
       mainBtn.disabled = false;
     }
   }
 
-  // --- the folder menu ------------------------------------------------------
+  async function postDownload({ kind, folder, force, url }) {
+    const body = { url: url || location.href, kind };
+    if (folder !== null && folder !== undefined) body.folder = folder;
+    if (force) body.force = true;
+    const res = await fetch(`${HELPER}/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = text;
+      try { msg = JSON.parse(text).detail || text; } catch (_) {}
+      throw new Error(msg);
+    }
+    return JSON.parse(text);
+  }
+
+  function showError(e) {
+    const msg = e.message || String(e);
+    const isYtDlp = /yt-dlp/i.test(msg);
+    const isDown = /failed to fetch|networkerror/i.test(msg);
+    mainBtn.title = msg;
+    renderMain("err",
+      isYtDlp ? "yt-dlp failed — update in Settings"
+        : isDown ? "Helper not running"
+        : msg.length > 46 ? msg.slice(0, 43) + "…" : msg);
+    setTimeout(setIdle, isYtDlp || isDown ? 8000 : 4000);
+  }
+
+  // One video at a time, so progress is real and a single bad entry does not
+  // sink the rest of the playlist.
+  async function downloadPlaylist(entries, kind) {
+    closeMenu();
+    mainBtn.disabled = true;
+    let done = 0, failed = 0;
+    for (const entry of entries) {
+      renderMain(null, `${done + failed + 1}/${entries.length}…`);
+      try {
+        await postDownload({ kind, folder: null, force: false, url: entry.url });
+        done++;
+      } catch (e) {
+        failed++;
+        console.warn("[Crateful] playlist entry failed", entry.url, e);
+      }
+    }
+    folderCache[kind] = null;
+    renderMain(failed ? "err" : "ok",
+               failed ? `${done} saved, ${failed} failed` : `Saved ${done}`);
+    mainBtn.disabled = false;
+    setTimeout(setIdle, 5000);
+  }
+
+  // --- helper lookups -------------------------------------------------------
 
   async function fetchFolders(root) {
     if (folderCache[root]) return folderCache[root];
     const res = await fetch(`${HELPER}/folders?root=${root}`);
     if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    folderCache[root] = { folders: data.folders || [], recent: data.recent || [] };
+    const d = await res.json();
+    folderCache[root] = { folders: d.folders || [], recent: d.recent || [] };
     return folderCache[root];
   }
 
-  function el(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
+  // Listing a playlist costs a yt-dlp round trip, around 3 seconds for 40
+  // entries. Start it as soon as the page loads and keep the promise, so the
+  // menu can show the result immediately instead of waiting on a click.
+  function primePlaylist() {
+    playlistPromise = null;
+    if (!/[?&]list=/.test(location.href)) return;
+    playlistPromise = (async () => {
+      try {
+        const res = await fetch(`${HELPER}/playlist?url=${encodeURIComponent(location.href)}`);
+        if (!res.ok) return null;
+        const d = await res.json();
+        return d.is_playlist ? d : null;
+      } catch {
+        return null;
+      }
+    })();
   }
+
+  async function refreshExisting() {
+    try {
+      const res = await fetch(`${HELPER}/check?url=${encodeURIComponent(location.href)}`);
+      if (!res.ok) return;
+      const d = await res.json();
+      existing = { audio: d.audio || null, video: d.video || null };
+    } catch {
+      existing = { audio: null, video: null };
+    }
+    if (mainBtn) setIdle();
+  }
+
+  // --- menu -----------------------------------------------------------------
 
   function closeMenu() {
     if (menuEl) {
@@ -129,21 +198,19 @@
     }
   }
 
-  // YouTube re-renders the page around us, so the menu node can vanish without
-  // closeMenu ever running. Trusting the variable alone would leave menuEl set
-  // and the next click on the caret would toggle nothing at all.
+  function onMenuKey(e) {
+    if (e.key === "Escape") { e.stopPropagation(); closeMenu(); }
+  }
+
+  // YouTube re-renders around us, so the node can vanish without closeMenu
+  // running. Trusting the variable alone would leave a click that does nothing.
   function menuIsOpen() {
     if (menuEl && !menuEl.isConnected) menuEl = null;
     return menuEl !== null;
   }
 
-  function onMenuKey(e) {
-    if (e.key === "Escape") { e.stopPropagation(); closeMenu(); }
-  }
-
   // The action row sits low on the page, so a menu anchored below the caret
-  // usually runs off the bottom of the window. Flip it above when there is
-  // more room up there, and cap its height to whatever room is left.
+  // usually runs off the bottom. Flip it above when there is more room there.
   function positionMenu() {
     if (!menuEl) return;
     const GAP = 8;
@@ -151,8 +218,7 @@
     const below = window.innerHeight - r.bottom - GAP * 2;
     const above = r.top - GAP * 2;
     const flip = below < Math.min(menuEl.scrollHeight, 240) && above > below;
-
-    menuEl.style.maxHeight = `${Math.max(180, Math.min(420, flip ? above : below))}px`;
+    menuEl.style.maxHeight = `${Math.max(180, Math.min(440, flip ? above : below))}px`;
     const height = Math.min(menuEl.offsetHeight, flip ? above : below);
     menuEl.style.top = flip
       ? `${window.scrollY + r.top - GAP - height}px`
@@ -165,76 +231,95 @@
   function openMenu() {
     if (menuIsOpen()) { closeMenu(); return; }
 
-    menuEl = el("div", "crateful-menu");
-    menuEl.id = MENU_ID;
+    menuEl = el("div", "cf-menu");
+    menuEl.id = "crateful-menu";
     menuEl.addEventListener("click", (e) => e.stopPropagation());
 
-    const tabs = el("div", "crateful-tabs");
-    const search = el("input", "crateful-search");
+    const tabs = el("div", "cf-tabs");
+    const search = el("input", "cf-search");
     search.type = "search";
     search.placeholder = "Filter folders…";
-    const list = el("div", "crateful-list");
-    const foot = el("div", "crateful-foot");
+    const list = el("div", "cf-list");
+    const foot = el("div", "cf-foot");
 
     let root = "audio";
+    let playlist = null;
+    let playlistPending = playlistPromise !== null;
+
+    function actionRow(cls, text, onClick, subtitle) {
+      const b = el("button", "cf-item " + cls);
+      b.appendChild(el("span", "cf-item-main", text));
+      if (subtitle) b.appendChild(el("span", "cf-item-sub", subtitle));
+      b.addEventListener("click", onClick);
+      return b;
+    }
 
     function renderList(data, query) {
       list.replaceChildren();
       const q = (query || "").toLowerCase().trim();
+      const have = existing[root];
 
-      const aiRow = el("button", "crateful-item crateful-ai",
-                       root === "audio" ? "Let AI pick the folder" : "Let AI pick (video)");
-      aiRow.addEventListener("click", () => download({ kind: root }));
-      list.appendChild(aiRow);
+      if (have && !q) {
+        list.appendChild(el("div", "cf-head", "Already downloaded"));
+        list.appendChild(actionRow("cf-have", have, () => { closeMenu(); reveal(root, have); },
+                                   "Open in Finder"));
+        list.appendChild(actionRow("cf-again", "Download again",
+                                   () => download({ kind: root, force: true }),
+                                   "Replaces the file above"));
+      }
+
+      if (playlistPending && !q) {
+        list.appendChild(el("div", "cf-head", "Playlist"));
+        list.appendChild(el("div", "cf-empty cf-pending", "Checking playlist…"));
+      } else if (playlist && !q) {
+        list.appendChild(el("div", "cf-head", "Playlist"));
+        list.appendChild(actionRow(
+          "cf-playlist",
+          `Download all ${playlist.count}`,
+          () => downloadPlaylist(playlist.entries, root),
+          playlist.title || undefined,
+        ));
+      }
+
+      if (!q) list.appendChild(el("div", "cf-head", have ? "Download again to" : "Download to"));
+      list.appendChild(actionRow("cf-ai", "Let AI pick the folder",
+                                 () => download({ kind: root, force: !!have })));
 
       const matches = (f) => !q || f.toLowerCase().includes(q);
       const recent = data.recent.filter(matches);
       const rest = data.folders.filter((f) => matches(f) && !recent.includes(f));
+      const folderRow = (f) => actionRow("", f, () => download({ kind: root, folder: f, force: !!have }));
 
       if (recent.length) {
-        list.appendChild(el("div", "crateful-head", "Recent"));
+        list.appendChild(el("div", "cf-head", "Recent"));
         recent.forEach((f) => list.appendChild(folderRow(f)));
       }
       if (rest.length) {
-        list.appendChild(el("div", "crateful-head", recent.length ? "All folders" : "Folders"));
+        list.appendChild(el("div", "cf-head", recent.length ? "All folders" : "Folders"));
         rest.forEach((f) => list.appendChild(folderRow(f)));
       }
-      if (!recent.length && !rest.length) {
-        if (q) {
-          const mk = el("button", "crateful-item crateful-new", `Create "${q}" and download here`);
-          mk.addEventListener("click", () => download({ kind: root, folder: q }));
-          list.appendChild(mk);
-        } else {
-          list.appendChild(el("div", "crateful-empty", "No folders yet."));
-        }
+      if (!recent.length && !rest.length && q) {
+        list.appendChild(actionRow("cf-new", `Create "${q}" and download here`,
+                                   () => download({ kind: root, folder: q, force: !!have })));
       }
-    }
-
-    function folderRow(folder) {
-      const row = el("button", "crateful-item", folder);
-      row.title = `Download here without asking the AI`;
-      row.addEventListener("click", () => download({ kind: root, folder }));
-      return row;
     }
 
     async function load() {
-      list.replaceChildren();
-      list.appendChild(el("div", "crateful-empty", "Loading…"));
+      list.replaceChildren(el("div", "cf-empty", "Loading…"));
       try {
         renderList(await fetchFolders(root), search.value);
       } catch (e) {
-        list.replaceChildren();
-        list.appendChild(el("div", "crateful-empty", "Helper not running."));
+        list.replaceChildren(el("div", "cf-empty", "Helper not running."));
       }
       positionMenu();
     }
 
     for (const r of ["audio", "video"]) {
-      const t = el("button", "crateful-tab" + (r === root ? " active" : ""),
+      const t = el("button", "cf-tab" + (r === root ? " active" : ""),
                    r === "audio" ? "Audio" : "Video");
       t.addEventListener("click", () => {
         root = r;
-        menuEl.querySelectorAll(".crateful-tab").forEach((x) => x.classList.remove("active"));
+        menuEl.querySelectorAll(".cf-tab").forEach((x) => x.classList.remove("active"));
         t.classList.add("active");
         load();
       });
@@ -246,7 +331,7 @@
       if (cached) renderList(cached, search.value);
     });
 
-    const settings = el("button", "crateful-link", "Settings ⚙");
+    const settings = el("button", "cf-link", "Settings ⚙");
     settings.addEventListener("click", () => {
       closeMenu();
       chrome.runtime.sendMessage({ type: "open-settings" });
@@ -255,29 +340,26 @@
 
     menuEl.append(tabs, search, list, foot);
     document.body.appendChild(menuEl);
-
     positionMenu();
-
     document.addEventListener("keydown", onMenuKey, true);
     search.focus();
     load();
+
+    // Usually already resolved from the page load; fold it in either way.
+    if (playlistPromise) {
+      playlistPromise.then((p) => {
+        playlistPending = false;
+        playlist = p;
+        if (!menuIsOpen()) return;
+        const cached = folderCache[root];
+        if (cached) { renderList(cached, search.value); positionMenu(); }
+      });
+    }
   }
 
   document.addEventListener("click", () => closeMenu());
 
   // --- injection ------------------------------------------------------------
-
-  async function applyExistingStatus() {
-    try {
-      const res = await fetch(`${HELPER}/check?url=${encodeURIComponent(location.href)}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.audio) setDownloaded("audio", data.audio);
-      else if (data.video) setDownloaded("video", data.video);
-    } catch (e) {
-      // Helper not running. Leave the button in its default state.
-    }
-  }
 
   function injectButtons() {
     if (!location.href.includes("youtube.com/watch")) return;
@@ -285,47 +367,62 @@
     const anchor = findAnchor();
     if (!anchor) return;
 
-    const wrap = el("span", null);
-    wrap.id = WRAP_ID;
+    wrapEl = el("span");
+    wrapEl.id = WRAP_ID;
+    cfApplyStyle(wrapEl, style);
 
-    mainBtn = el("button", "ytd-dj-btn ytd-dj-main");
-    mainBtn.dataset.baseClass = "ytd-dj-btn ytd-dj-main";
+    mainBtn = el("button", "cf-btn cf-main");
     mainBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (mainBtn.dataset.downloadedPath) {
-        reveal(mainBtn.dataset.downloadedRoot, mainBtn.dataset.downloadedPath);
+      const done = existing.audio || existing.video;
+      if (done) {
+        reveal(existing.audio ? "audio" : "video", done);
         return;
       }
       download({ kind: "audio" });
     });
-    setIdle();
 
-    caretBtn = el("button", "ytd-dj-btn ytd-dj-more", "⋮");
-    caretBtn.dataset.baseClass = "ytd-dj-btn ytd-dj-more";
-    caretBtn.title = "Choose a folder, or download the video";
+    caretBtn = el("button", "cf-btn cf-more");
+    caretBtn.appendChild(el("span", null, "⋮"));
+    caretBtn.title = "Choose a folder, download the video, or download again";
     caretBtn.setAttribute("aria-label", "Download options");
     caretBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       openMenu();
     });
 
-    wrap.append(mainBtn, caretBtn);
-    anchor.appendChild(wrap);
-    applyExistingStatus();
+    wrapEl.append(mainBtn, caretBtn);
+    anchor.appendChild(wrapEl);
+    setIdle();
+    refreshExisting();
+    primePlaylist();
   }
+
+  // Restyle live when the settings page saves, with no page reload.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[CF_STYLE_KEY]) return;
+    style = cfNormalizeStyle(changes[CF_STYLE_KEY].newValue);
+    if (wrapEl) { cfApplyStyle(wrapEl, style); setIdle(); }
+  });
 
   let lastUrl = location.href;
   const observer = new MutationObserver(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       closeMenu();
-      const existing = document.getElementById(WRAP_ID);
-      if (existing) existing.remove();
+      document.getElementById(WRAP_ID)?.remove();
       folderCache.audio = folderCache.video = null;
+      existing = { audio: null, video: null };
+      playlistPromise = null;
     }
     injectButtons();
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  cfLoadStyle().then((s) => {
+    style = s;
+    if (wrapEl) { cfApplyStyle(wrapEl, style); setIdle(); }
+  });
 
   setTimeout(injectButtons, 800);
   setTimeout(injectButtons, 2000);

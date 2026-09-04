@@ -8,7 +8,7 @@ Download YouTube audio as MP3 (or video as MP4) into AI-categorized folders, the
 
 ## What you get
 
-- A Chrome extension that adds one **Download** button to YouTube watch pages, with a **⋮** menu for picking a folder yourself or grabbing the video.
+- A Chrome extension that adds one **Download** button to YouTube watch pages, with a **⋮** menu for picking a folder yourself, grabbing the video, taking a whole playlist, or downloading again.
 - A local Python helper (FastAPI) that runs yt-dlp and ffmpeg, asks an AI model to file each download, writes ID3 tags, and saves the file.
 - A file-explorer page with folder navigation, playback with resume, rename, move, delete, re-categorize, and reveal in Finder.
 - A popup player that keeps playing after you close the popup.
@@ -51,7 +51,11 @@ Then add your API key: click the Crateful icon, open **Settings**, pick a provid
 4. Type a folder that does not exist yet and the menu offers to create it.
 5. Click the extension icon for the popup library, or **Open browser** for the full file explorer.
 
-Once a video is downloaded the button turns green. Click it again to show the file in Finder.
+Once a video is downloaded the button turns green. Click it to show the file in Finder. The **⋮** menu then also lists where the file went, with **Open in Finder**, and a **Download again** that replaces the old file rather than leaving a second copy beside it.
+
+Open a video from a playlist and the menu offers to download the whole playlist. Entries are fetched one at a time, so the button counts progress and a single failed video does not sink the rest.
+
+The button's look is yours: **Settings** has a label field, background, text and border colours, a corner-radius slider, and a toggle for the crate icon, with four presets to start from. Saving updates every open YouTube tab straight away.
 
 Files are saved as:
 
@@ -80,6 +84,8 @@ For each download the helper sends the title, channel, duration, tags, categorie
 The prompt works hard against a fragmented library. The model gets your exact folder list and is told to reuse a folder rather than coin a near-duplicate, so `deep-house` and `deephouse` never end up side by side. It picks a top folder from a fixed genre vocabulary, keeps remix and edit credits in the title while stripping "(Official Video)" and its relatives, credits the original artist rather than the remixer, and drops featured guests. When the metadata is too thin to place a track it returns low confidence and the track lands in `unsorted/general` instead of a wrong genre, because a wrong folder costs more than an unsorted one.
 
 BPM and musical key are read out of the title or description when they are stated outright, never guessed, and written to the ID3 `TBPM` and `TKEY` tags that Djay Pro and Rekordbox read.
+
+Every link is reduced to `https://www.youtube.com/watch?v=ID` before yt-dlp sees it. This matters most for `&list=`: yt-dlp reads that as a playlist, names the file after the playlist, and downloads every entry. `&t=`, `&index=`, `&pp=` and `&si=` are merely noise. A playlist is downloaded only when you ask for it in the menu.
 
 Picking a folder from the **⋮** menu skips the model completely. Artist and title then come from the video metadata: yt-dlp's own music tags when the channel provides them, otherwise the title split on its dash with the usual upload noise stripped.
 
@@ -127,7 +133,8 @@ Logs go to `~/.ytd_dj/helper.log`.
 | GET | `/status` | health, dependency check, versions |
 | GET, PUT | `/config` | read and write settings |
 | POST | `/test-key` | check a provider key or the Ollama URL |
-| POST | `/download` | `{url, kind: audio\|video, model?, folder?}` |
+| POST | `/download` | `{url, kind: audio\|video, model?, folder?, force?}` |
+| GET | `/playlist?url=` | list a playlist's videos, without downloading |
 | GET | `/check?url=` | is this video already downloaded |
 | GET | `/library?root=` | flat list of every file |
 | GET | `/browse?root=&path=` | one folder, with playback state |
@@ -195,7 +202,7 @@ cd helper
 - Single user, no authentication. The helper trusts anything running on your machine.
 - Categorization is only as good as the YouTube metadata. Fix folders by hand, or use **Re-categorize** after editing the prompt.
 - Each download costs one AI request. Ollama makes that free.
-- Downloads run one at a time and block until finished. There is no queue.
+- Downloads run one at a time and block until finished. There is no queue, so a large playlist holds the button for its whole run.
 - Picking a folder yourself skips the model, so the artist and title come from a plain text split of the video title. Expect the AI path to name files better.
 
 ## License

@@ -33,6 +33,14 @@ Goal: make Crateful safe and reliable for people who install it from GitHub.
 - The categorization prompt was rewritten: a fixed genre vocabulary, hard anti-fragmentation rules, remix and featured-artist handling, a low-confidence path to `unsorted/general`, and BPM and key extraction written to the ID3 TBPM and TKEY tags.
 - The per-download model dropdown is gone from the page. The `model` field still works over the API.
 
+## Phase 5: playlists, re-download, and a customisable button (done)
+
+- Every link is reduced to `watch?v=ID` before yt-dlp sees it. `&list=` used to make yt-dlp treat the link as a playlist: it named the file after the playlist and downloaded all its entries.
+- `GET /playlist` lists a playlist without downloading. The extension walks the list and calls `/download` per entry, so progress is real and one bad entry does not stop the rest.
+- `POST /download` takes `force`, which deletes the previous file for that video instead of writing `Track (1).mp3`.
+- The menu shows what already exists for the video, with Open in Finder and Download again.
+- The button is fully customisable in Settings: label, colours, corner radius, crate icon, four presets. Stored in `chrome.storage.local` and applied live through `storage.onChanged`.
+
 ## Later
 
 - Split `helper/main.py` (1449 lines) into modules.

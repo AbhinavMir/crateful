@@ -186,3 +186,65 @@ input:focus, textarea:focus {
 }
 .preset:hover { background: #303030; color: #fff; border-color: #4a4a4a; }
 .preset.active { background: #cc0000; border-color: #cc0000; color: #fff; }
+
+/* Download-button customiser. */
+.preview-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: #101010;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+}
+.preview-wrap {
+  --cf-bg: #FDECEC;
+  --cf-fg: #B42318;
+  --cf-border: #F5C6C4;
+  --cf-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+}
+.preview-wrap .cf-btn {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--cf-bg);
+  color: var(--cf-fg);
+  border: 1px solid var(--cf-border);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: default;
+}
+.preview-wrap .cf-main {
+  padding: 0 14px;
+  border-radius: var(--cf-radius) 0 0 var(--cf-radius);
+  border-right: none;
+}
+.preview-wrap .cf-more {
+  width: 32px;
+  padding: 0;
+  border-radius: 0 var(--cf-radius) var(--cf-radius) 0;
+  font-size: 16px;
+}
+.preview-wrap .cf-icon { width: 17px; height: 17px; display: block; }
+
+.field-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.field-small { flex: 1; min-width: 170px; margin-bottom: 0; }
+.field-small.check { flex-direction: row; align-items: center; gap: 8px; }
+.color-row { display: flex; align-items: center; gap: 8px; }
+.color-row input[type="color"] {
+  width: 36px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  background: #181818;
+  cursor: pointer;
+}
+.color-row input[type="text"] { flex: 1; min-width: 0; }
+.color-row input[type="range"] { flex: 1; }

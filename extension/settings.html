@@ -89,6 +89,69 @@
       </section>
 
       <section>
+        <h2>Download button</h2>
+        <p class="hint">How the button looks on YouTube. Changes apply to open tabs straight away.</p>
+
+        <div id="style-presets" class="presets"></div>
+
+        <div class="preview-row">
+          <span class="muted">Preview</span>
+          <span id="btn-preview" class="preview-wrap">
+            <button class="cf-btn cf-main" id="preview-main"></button>
+            <button class="cf-btn cf-more"><span>⋮</span></button>
+          </span>
+        </div>
+
+        <label>
+          <span>Label</span>
+          <input id="btn-label" type="text" maxlength="24" placeholder="Download" />
+        </label>
+
+        <div class="field-row">
+          <label class="field-small">
+            <span>Background</span>
+            <div class="color-row">
+              <input id="btn-bg" type="color" />
+              <input id="btn-bg-text" type="text" spellcheck="false" />
+            </div>
+          </label>
+          <label class="field-small">
+            <span>Text</span>
+            <div class="color-row">
+              <input id="btn-fg" type="color" />
+              <input id="btn-fg-text" type="text" spellcheck="false" />
+            </div>
+          </label>
+          <label class="field-small">
+            <span>Border</span>
+            <div class="color-row">
+              <input id="btn-border" type="color" />
+              <input id="btn-border-text" type="text" spellcheck="false" />
+            </div>
+          </label>
+        </div>
+
+        <div class="field-row">
+          <label class="field-small">
+            <span>Corner radius</span>
+            <div class="color-row">
+              <input id="btn-radius" type="range" min="0" max="24" step="1" />
+              <span id="btn-radius-val" class="muted"></span>
+            </div>
+          </label>
+          <label class="field-small check">
+            <input id="btn-icon" type="checkbox" />
+            <span>Show the crate icon</span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="btn-reset">Reset to default</button>
+          <span id="btn-status" class="muted"></span>
+        </div>
+      </section>
+
+      <section>
         <h2>Helper</h2>
         <p class="hint">YouTube changes break old yt-dlp versions. If downloads fail with a yt-dlp error, update it here. The helper restarts by itself.</p>
         <div class="actions">
@@ -101,6 +164,7 @@
       </section>
     </main>
 
+    <script src="button-style.js"></script>
     <script src="settings.js"></script>
   </body>
 </html>

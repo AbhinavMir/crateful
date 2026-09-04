@@ -1,50 +1,57 @@
-#ytd-dj-buttons {
+/* Colours come from the user's saved button style, set as inline custom
+   properties on the wrapper. The fallbacks are the light-red default. */
+#crateful-buttons {
+  --cf-bg: #FDECEC;
+  --cf-fg: #B42318;
+  --cf-border: #F5C6C4;
+  --cf-radius: 8px;
   display: inline-flex;
   align-items: center;
   margin-left: 8px;
 }
-.ytd-dj-btn {
-  color: #fff;
-  border: none;
+.cf-btn {
   height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--cf-bg);
+  color: var(--cf-fg);
+  border: 1px solid var(--cf-border);
   cursor: pointer;
   font-family: "YouTube Sans", Roboto, Arial, sans-serif;
   font-size: 14px;
   font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   white-space: nowrap;
-  transition: background 0.15s;
+  transition: filter 0.15s;
 }
-.ytd-dj-main {
-  background: #cc0000;
-  padding: 0 16px;
-  border-radius: 18px 0 0 18px;
+.cf-main {
+  padding: 0 14px;
+  border-radius: var(--cf-radius) 0 0 var(--cf-radius);
+  border-right: none;
 }
-.ytd-dj-main:hover:not(:disabled) { background: #a30000; }
-.ytd-dj-more {
-  background: #cc0000;
-  width: 34px;
+.cf-more {
+  width: 32px;
   padding: 0;
-  border-radius: 0 18px 18px 0;
-  border-left: 1px solid rgba(0, 0, 0, 0.25);
-  font-size: 17px;
+  border-radius: 0 var(--cf-radius) var(--cf-radius) 0;
+  font-size: 16px;
   line-height: 1;
 }
-.ytd-dj-more:hover:not(:disabled) { background: #a30000; }
-.ytd-dj-btn:disabled { cursor: default; opacity: 0.85; }
-.ytd-dj-btn.ytd-dj-ok { background: #0a8a0a; }
-.ytd-dj-btn.ytd-dj-err { background: #555; }
-.ytd-dj-btn.ytd-dj-done { background: #1f6b1f; color: #d8ffd8; }
-.ytd-dj-btn.ytd-dj-done:hover:not(:disabled) { background: #267026; }
+.cf-btn:hover:not(:disabled) { filter: brightness(0.94); }
+.cf-btn:disabled { cursor: default; opacity: 0.75; }
+.cf-icon { width: 17px; height: 17px; display: block; }
+.cf-label { display: block; }
 
-/* Folder menu, appended to body so YouTube's overflow rules cannot clip it. */
-.crateful-menu {
+/* Transient states override the custom colours so they stay readable. */
+.cf-btn.cf-ok { background: #E7F6E7; color: #15621B; border-color: #BFE3BF; }
+.cf-btn.cf-err { background: #F1F1F1; color: #444; border-color: #D6D6D6; }
+.cf-btn.cf-done { background: #E9F3EA; color: #1B6B22; border-color: #C3E0C6; }
+
+/* Menu, appended to body so YouTube's overflow rules cannot clip it. */
+.cf-menu {
   position: absolute;
   z-index: 2147483647;
-  width: 300px;
-  max-height: 420px;
+  width: 306px;
   display: flex;
   flex-direction: column;
   background: #212121;
@@ -56,12 +63,8 @@
   color: #eee;
   overflow: hidden;
 }
-.crateful-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 8px 8px 0;
-}
-.crateful-tab {
+.cf-tabs { display: flex; gap: 4px; padding: 8px 8px 0; }
+.cf-tab {
   flex: 1;
   background: transparent;
   color: #aaa;
@@ -70,11 +73,12 @@
   padding: 7px 0;
   font-size: 12px;
   font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
 }
-.crateful-tab:hover { background: #2c2c2c; color: #ddd; }
-.crateful-tab.active { background: #383838; color: #fff; }
-.crateful-search {
+.cf-tab:hover { background: #2c2c2c; color: #ddd; }
+.cf-tab.active { background: #383838; color: #fff; }
+.cf-search {
   margin: 8px;
   padding: 7px 10px;
   background: #181818;
@@ -85,13 +89,9 @@
   font-family: inherit;
   outline: none;
 }
-.crateful-search:focus { border-color: #666; }
-.crateful-list {
-  overflow-y: auto;
-  padding: 0 6px 6px;
-  flex: 1;
-}
-.crateful-head {
+.cf-search:focus { border-color: #666; }
+.cf-list { overflow-y: auto; padding: 0 6px 6px; flex: 1; }
+.cf-head {
   padding: 8px 8px 4px;
   font-size: 11px;
   font-weight: 700;
@@ -99,8 +99,11 @@
   text-transform: uppercase;
   color: #888;
 }
-.crateful-item {
-  display: block;
+.cf-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   width: 100%;
   text-align: left;
   background: transparent;
@@ -111,25 +114,28 @@
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
-  white-space: nowrap;
+}
+.cf-item:hover { background: #333; }
+.cf-item-main {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.crateful-item:hover { background: #333; }
-.crateful-ai {
-  margin: 2px 0 4px;
-  background: #2a1f1f;
-  color: #ff9a9a;
-  font-weight: 600;
-}
-.crateful-ai:hover { background: #3a2626; }
-.crateful-new { color: #8fd48f; font-weight: 600; }
-.crateful-empty { padding: 14px 10px; color: #888; }
-.crateful-foot {
-  border-top: 1px solid #303030;
-  padding: 6px;
-}
-.crateful-link {
+.cf-item-sub { font-size: 11px; color: #8b8b8b; }
+.cf-have { background: #1d2a1d; }
+.cf-have:hover { background: #24352400; background-color: #263626; }
+.cf-have .cf-item-main { color: #9ddca2; }
+.cf-again .cf-item-main { color: #e0b26a; }
+.cf-playlist { background: #1c2430; }
+.cf-playlist:hover { background-color: #243044; }
+.cf-playlist .cf-item-main { color: #9cc4f0; }
+.cf-ai .cf-item-main { color: #ff9a9a; font-weight: 600; }
+.cf-new .cf-item-main { color: #8fd48f; font-weight: 600; }
+.cf-empty { padding: 14px 10px; color: #888; }
+.cf-foot { border-top: 1px solid #303030; padding: 6px; }
+.cf-link {
   width: 100%;
   background: transparent;
   border: none;
@@ -141,4 +147,6 @@
   cursor: pointer;
   text-align: left;
 }
-.crateful-link:hover { background: #2c2c2c; color: #cde; }
+.cf-link:hover { background: #2c2c2c; color: #cde; }
+
+.cf-pending { color: #8b8b8b; font-style: italic; }

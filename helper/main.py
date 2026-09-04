@@ -53,6 +53,15 @@ YOUTUBE_ID_RE = re.compile(
     r"(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|v/))([A-Za-z0-9_-]{11})"
 )
 
+# noplaylist is belt and braces: canonical_url already drops `&list=`, but a
+# link we cannot parse is passed through as-is and must never pull a playlist.
+YDL_INFO_OPTS = {
+    "quiet": True,
+    "no_warnings": True,
+    "skip_download": True,
+    "noplaylist": True,
+}
+
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Browser callers must be the extension (any unpacked/store ID) or the
@@ -98,6 +107,7 @@ class DownloadRequest(BaseModel):
     kind: str = "audio"  # "audio" or "video"
     model: str | None = None  # one-off override of the configured model
     folder: str | None = None  # explicit destination folder; skips the AI call
+    force: bool = False  # replace an existing download instead of adding a copy
 
 
 class ConfigUpdate(BaseModel):
@@ -558,6 +568,19 @@ def extract_video_id(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+def canonical_url(url: str) -> str:
+    """Reduce a YouTube link to just its video.
+
+    A watch URL usually carries more than the video id. `&list=` is the
+    dangerous one: yt-dlp reads it as a playlist, names the file after the
+    playlist, and downloads every entry. `&t=`, `&index=`, `&pp=` and `&si=`
+    are merely noise. Rebuilding the URL from the id alone removes all of it.
+    Anything we cannot parse is passed through untouched.
+    """
+    vid = extract_video_id(url)
+    return f"https://www.youtube.com/watch?v={vid}" if vid else url
+
+
 def read_history() -> dict:
     if not HISTORY_FILE.exists():
         return {}
@@ -582,6 +605,61 @@ def record_download(video_id: str | None, kind: str, rel_path: str) -> None:
     entry = hist.setdefault(video_id, {})
     entry[kind] = rel_path
     write_history(hist)
+
+
+def previous_download_path(kind: str, video_id: str | None) -> Path | None:
+    """Where this exact video was saved last time, if it is still on disk."""
+    if not video_id:
+        return None
+    rel = read_history().get(video_id, {}).get(kind)
+    if not rel:
+        return None
+    full = root_for(kind) / rel
+    return full if full.is_file() else None
+
+
+@app.get("/playlist")
+def playlist_info(url: str = Query(...), limit: int = Query(200, ge=1, le=500)):
+    """List the videos behind a playlist link, without downloading anything.
+
+    The extension walks this list and calls /download once per entry, so a
+    playlist reuses the single-video path and can report progress as it goes.
+    """
+    opts = dict(YDL_INFO_OPTS)
+    opts["noplaylist"] = False
+    opts["extract_flat"] = "in_playlist"
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as e:
+        raise HTTPException(400, f"yt-dlp failed: {e}") from e
+
+    entries = info.get("entries")
+    if not entries:
+        return {"is_playlist": False, "title": None, "count": 0, "entries": []}
+
+    out = []
+    for entry in entries:
+        if not entry:
+            continue
+        vid = entry.get("id")
+        if not vid:
+            continue
+        out.append({
+            "video_id": vid,
+            "title": entry.get("title") or vid,
+            "url": f"https://www.youtube.com/watch?v={vid}",
+            "duration_sec": entry.get("duration"),
+        })
+        if len(out) >= limit:
+            break
+    return {
+        "is_playlist": True,
+        "title": info.get("title"),
+        "count": len(out),
+        "truncated": len(out) >= limit,
+        "entries": out,
+    }
 
 
 def list_folders(base: Path) -> list[dict]:
@@ -1237,13 +1315,22 @@ def download(req: DownloadRequest):
     if not shutil.which("ffmpeg"):
         raise HTTPException(500, "ffmpeg not found. Run: brew install ffmpeg")
 
+    url = canonical_url(req.url)
     try:
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
-            info = ydl.extract_info(req.url, download=False)
+        with yt_dlp.YoutubeDL(YDL_INFO_OPTS) as ydl:
+            info = ydl.extract_info(url, download=False)
     except Exception as e:
         raise HTTPException(400, f"yt-dlp failed: {e}") from e
+    if info.get("_type") == "playlist" or info.get("entries"):
+        # canonical_url should have stripped the list parameter already. If a
+        # link still resolves to a playlist we refuse rather than quietly
+        # downloading every entry into someone's library.
+        raise HTTPException(
+            400, "That link is a playlist. Use the playlist option to download its videos."
+        )
 
     bpm, musical_key = extract_bpm_key(info)
+    video_id_hint = extract_video_id(url) or info.get("id")
 
     if req.folder is not None:
         # The user picked the destination, so skip the model entirely: no API
@@ -1293,9 +1380,21 @@ def download(req: DownloadRequest):
 
     base = NAME_CHARS.sub("", f"{artist} - {title}").strip() or "untitled"
 
+    # A repeat download normally lands beside the old file as "Track (1).mp3".
+    # With force we delete the previous copy of this exact video first, so
+    # re-downloading replaces rather than accumulates.
+    replaced = None
+    if req.force:
+        previous = previous_download_path(kind, video_id_hint)
+        if previous and previous.exists():
+            replaced = str(previous.relative_to(base_root))
+            previous.unlink()
+            db_delete_file(kind, replaced)
+
     if kind == "audio":
         final_path = unique_path(target_dir, base, "mp3")
         ydl_opts = {
+            "noplaylist": True,
             "format": "bestaudio/best",
             "outtmpl": str(final_path.with_suffix("")) + ".%(ext)s",
             "quiet": True,
@@ -1312,6 +1411,7 @@ def download(req: DownloadRequest):
     else:  # video
         final_path = unique_path(target_dir, base, "mp4")
         ydl_opts = {
+            "noplaylist": True,
             "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "merge_output_format": "mp4",
             "outtmpl": str(final_path.with_suffix("")) + ".%(ext)s",
@@ -1322,7 +1422,7 @@ def download(req: DownloadRequest):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([req.url])
+            ydl.download([url])
     except Exception as e:
         raise HTTPException(500, f"yt-dlp download failed: {e}") from e
 
@@ -1337,12 +1437,12 @@ def download(req: DownloadRequest):
         write_id3(final_path, info, title, artist, id3_genre, bpm, musical_key)
 
     rel_path = str(final_path.relative_to(base_root))
-    video_id = extract_video_id(req.url) or info.get("id")
+    video_id = video_id_hint
     record_download(video_id, kind, rel_path)
     try:
         db_upsert_file(
             kind, rel_path,
-            source_url=req.url,
+            source_url=url,
             video_id=video_id,
             title=title,
             artist=artist,
@@ -1367,7 +1467,8 @@ def download(req: DownloadRequest):
         "bpm": bpm,
         "musical_key": musical_key,
         "categorized": categorized,
-        "source_url": req.url,
+        "replaced": replaced,
+        "source_url": url,
         "model_used": req.model if categorized else None,
     }
 
@@ -1677,8 +1778,8 @@ def reclassify(req: ReclassifyRequest):
 
     source_url = record["source_url"]
     try:
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
-            info = ydl.extract_info(source_url, download=False)
+        with yt_dlp.YoutubeDL(YDL_INFO_OPTS) as ydl:
+            info = ydl.extract_info(canonical_url(source_url), download=False)
     except Exception as e:
         raise HTTPException(400, f"yt-dlp failed: {e}") from e
 

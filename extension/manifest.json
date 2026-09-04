@@ -18,9 +18,15 @@
   "content_scripts": [
     {
       "matches": ["*://www.youtube.com/watch*"],
-      "js": ["content.js"],
+      "js": ["button-style.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/icon-32.png", "icons/icon-128.png"],
+      "matches": ["*://www.youtube.com/*"]
     }
   ],
   "background": {

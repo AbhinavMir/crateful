@@ -201,6 +201,121 @@ $("reset-prompt").addEventListener("click", () => {
   $("prompt-status").textContent = "Reverted to default (not yet saved).";
 });
 
+// --- download button customiser -------------------------------------------
+
+const PRESET_LABELS = {
+  notion: "Light red",
+  solid: "Solid red",
+  outline: "Outline",
+  dark: "Dark",
+};
+
+let buttonStyle = { ...CF_DEFAULT_STYLE };
+
+function paintPreview() {
+  const wrap = $("btn-preview");
+  cfApplyStyle(wrap, buttonStyle);
+  const main = $("preview-main");
+  main.replaceChildren();
+  if (buttonStyle.icon) {
+    const img = document.createElement("img");
+    img.className = "cf-icon";
+    img.src = chrome.runtime.getURL("icons/icon-32.png");
+    img.alt = "";
+    main.appendChild(img);
+  }
+  const span = document.createElement("span");
+  span.textContent = buttonStyle.label;
+  main.appendChild(span);
+  $("btn-radius-val").textContent = `${buttonStyle.radius}px`;
+  document.querySelectorAll("#style-presets .preset").forEach((b) => {
+    b.classList.toggle("active", b.dataset.preset === buttonStyle.preset);
+  });
+}
+
+function fillButtonInputs() {
+  $("btn-label").value = buttonStyle.label;
+  for (const key of ["bg", "fg", "border"]) {
+    // A colour input cannot hold "transparent", so the text field is the
+    // source of truth and the swatch falls back to something valid.
+    $(`btn-${key}`).value = /^#[0-9a-f]{6}$/i.test(buttonStyle[key]) ? buttonStyle[key] : "#000000";
+    $(`btn-${key}-text`).value = buttonStyle[key];
+  }
+  $("btn-radius").value = buttonStyle.radius;
+  $("btn-icon").checked = buttonStyle.icon;
+}
+
+async function commitButtonStyle({ custom = true } = {}) {
+  if (custom) buttonStyle.preset = "custom";
+  buttonStyle = cfNormalizeStyle({ ...buttonStyle, preset: buttonStyle.preset });
+  paintPreview();
+  await cfSaveStyle(buttonStyle);
+  const st = $("btn-status");
+  st.textContent = "Saved.";
+  st.className = "muted ok";
+  setTimeout(() => { st.textContent = ""; st.className = "muted"; }, 1600);
+}
+
+function wireButtonCustomiser() {
+  const wrap = $("style-presets");
+  for (const [name, label] of Object.entries(PRESET_LABELS)) {
+    const b = document.createElement("button");
+    b.className = "preset";
+    b.type = "button";
+    b.dataset.preset = name;
+    b.textContent = label;
+    b.addEventListener("click", async () => {
+      buttonStyle = cfNormalizeStyle({ preset: name });
+      fillButtonInputs();
+      await commitButtonStyle({ custom: false });
+    });
+    wrap.appendChild(b);
+  }
+
+  $("btn-label").addEventListener("input", (e) => {
+    buttonStyle.label = e.target.value;
+    paintPreview();
+  });
+  $("btn-label").addEventListener("change", () => commitButtonStyle());
+
+  for (const key of ["bg", "fg", "border"]) {
+    $(`btn-${key}`).addEventListener("input", (e) => {
+      buttonStyle[key] = e.target.value;
+      $(`btn-${key}-text`).value = e.target.value;
+      paintPreview();
+    });
+    $(`btn-${key}`).addEventListener("change", () => commitButtonStyle());
+    $(`btn-${key}-text`).addEventListener("change", (e) => {
+      buttonStyle[key] = e.target.value.trim() || "transparent";
+      fillButtonInputs();
+      commitButtonStyle();
+    });
+  }
+
+  $("btn-radius").addEventListener("input", (e) => {
+    buttonStyle.radius = Number(e.target.value);
+    paintPreview();
+  });
+  $("btn-radius").addEventListener("change", () => commitButtonStyle());
+
+  $("btn-icon").addEventListener("change", (e) => {
+    buttonStyle.icon = e.target.checked;
+    commitButtonStyle();
+  });
+
+  $("btn-reset").addEventListener("click", async () => {
+    buttonStyle = { ...CF_DEFAULT_STYLE };
+    fillButtonInputs();
+    await commitButtonStyle({ custom: false });
+  });
+}
+
+async function loadButtonStyle() {
+  buttonStyle = await cfLoadStyle();
+  fillButtonInputs();
+  paintPreview();
+}
+
 // Changing the library root should not mean typing a path by hand.
 async function loadPathPresets() {
   const wrap = $("path-presets");
@@ -297,6 +412,8 @@ $("update-ytdlp").addEventListener("click", updateYtDlp);
 
 load().then(loadPathPresets);
 loadHelperInfo();
+wireButtonCustomiser();
+loadButtonStyle();
 $("audio-root").addEventListener("input", () => {
   const wrap = $("path-presets");
   wrap.querySelectorAll(".preset").forEach((b) => b.classList.remove("active"));
