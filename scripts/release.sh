@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# Bump the version in VERSION, extension/manifest.json, and helper/main.py,
-# then commit and tag.
-#
-#   scripts/release.sh 0.12.0          bump, commit, tag v0.12.0
-#   scripts/release.sh 0.12.0 --push   also push the branch and the tag
-#
-# Pushing the tag triggers .github/workflows/release.yml, which creates the
-# GitHub Release. The in-app updater reads VERSION from main, so merge the
-# bump to main to ship it.
 set -e
 cd "$(dirname "$0")/.."
 

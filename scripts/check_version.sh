@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Fail if VERSION, extension/manifest.json, and helper/main.py disagree.
 set -e
 cd "$(dirname "$0")/.."
 v_file=$(tr -d '[:space:]' < VERSION)

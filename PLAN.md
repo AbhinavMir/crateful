@@ -1,60 +1,31 @@
 # Plan
 
-Goal: make Crateful safe and reliable for people who install it from GitHub.
+Crateful: a Chrome extension plus a local Python helper that downloads YouTube
+audio into AI-categorized folders.
 
-## Phase 1: harden the helper (branch `harden-helper`)
+## Shape
 
-- Origin allowlist. Only `chrome-extension://*` and `https://www.youtube.com` can call the helper from a browser. Other sites get 403.
-- `YTD_DJ_HOME` env var moves the config/state directory. Tests use it to stay out of the real library.
-- Test suite: 69 pytest tests in `helper/tests/`. yt-dlp and the AI call are faked.
-- Lint: ruff, config in `helper/pyproject.toml`.
-- CI: GitHub Actions runs ruff, pytest (Python 3.10 and 3.13), and `scripts/check_version.sh`.
+- `helper/main.py` is the whole backend. FastAPI on 127.0.0.1:7531.
+- `extension/` is plain JavaScript, no build step.
+- The version lives in `VERSION`, `extension/manifest.json`, and `helper/main.py`.
+  CI fails when they disagree.
+- No tests. Keep it simple and verify by running it.
 
-## Phase 2: install and update
+## Done
 
-- `install.sh` at repo root: checks python3 and ffmpeg, creates the venv, installs the LaunchAgent, prints the extension steps.
-- `run.sh` reinstalls deps when `requirements.txt` changes.
-- `/update` runs `git pull`, then `pip install -r requirements.txt`, then `pip install -U yt-dlp`, then re-execs itself. This works with or without the LaunchAgent.
-- `/reveal` uses `xdg-open` on Linux.
-- Extension shows a clear message when yt-dlp fails and points at the update button.
-
-## Phase 3: release and docs (done)
-
-- `scripts/release.sh X.Y.Z [--push]` bumps `VERSION`, `extension/manifest.json`, and `helper/main.py`, commits, and tags.
-- `.github/workflows/release.yml` runs on a `v*` tag. It checks that the tag matches `VERSION`, then creates the GitHub Release with generated notes.
-- README rewritten: providers, settings, security, updating, full endpoint table, troubleshooting.
-- `CONTRIBUTING.md` covers setup, checks, the Chrome reload loop, and the release command.
-
-## Phase 4: one-button download (done)
-
-- The YouTube row now shows one **Download** button plus a **⋮** menu. Download alone takes the audio and lets the AI file it.
-- The menu lists recent folders first, then all folders, with a filter box, an audio/video switch, and an offer to create a folder that does not exist yet. Picking a folder sends `folder` to `/download`, which skips the model entirely.
-- `/folders` also returns recent folders. New `/path-presets` feeds one-click library destinations on the Settings page.
-- The categorization prompt was rewritten: a fixed genre vocabulary, hard anti-fragmentation rules, remix and featured-artist handling, a low-confidence path to `unsorted/general`, and BPM and key extraction written to the ID3 TBPM and TKEY tags.
-- The per-download model dropdown is gone from the page. The `model` field still works over the API.
-
-## Phase 5: playlists, re-download, and a customisable button (done)
-
-- Every link is reduced to `watch?v=ID` before yt-dlp sees it. `&list=` used to make yt-dlp treat the link as a playlist: it named the file after the playlist and downloaded all its entries.
-- `GET /playlist` lists a playlist without downloading. The extension walks the list and calls `/download` per entry, so progress is real and one bad entry does not stop the rest.
-- `POST /download` takes `force`, which deletes the previous file for that video instead of writing `Track (1).mp3`.
-- The menu shows what already exists for the video, with Open in Finder and Download again.
-- The button is fully customisable in Settings: label, colours, corner radius, crate icon, four presets. Stored in `chrome.storage.local` and applied live through `storage.onChanged`.
-
-## Phase 6: playlist pages (done)
-
-- The content script now runs on `/playlist` as well as `/watch`, and the button sits in the playlist header next to Play all.
-- Anchors are chosen by first *visible* match. YouTube keeps several copies of these components in the DOM and renders one; `querySelector` was returning a zero-sized leftover.
-- Each entry downloads and is filed on its own. `POST /check-bulk` reports which entries already exist so a re-run resumes, and clicking the button mid-run stops it after the current track.
-- `cookies_from_browser` passes browser cookies to yt-dlp. YouTube demands sign-in verification once a machine makes enough requests, and a playlist run triggers it. yt-dlp errors about it now name the setting instead of printing the raw wall of text.
+- Origin allowlist: only the extension and www.youtube.com can call the helper.
+- `install.sh`, self-restarting updater, `scripts/release.sh`, GitHub Releases on tag.
+- One Download button with a folder menu, recent folders, and folder creation.
+- Playlists: `/playlist` lists entries, each downloads and is filed on its own,
+  already-saved entries are skipped, and a run can be stopped.
+- URLs are reduced to `watch?v=ID`, so `&list=` no longer pulls a whole playlist.
+- Force re-download replaces the previous file for that video.
+- Customisable button: label, colours, corner radius, crate icon.
+- `cookies_from_browser` for when YouTube asks for sign-in verification.
+- Provider failures return 502 with a readable message, and unhandled errors
+  return JSON that still carries CORS headers.
 
 ## Later
 
-- Split `helper/main.py` (1449 lines) into modules.
-- Download job queue with progress and retry.
-
-## Decisions
-
-- Audience: people who clone the repo from GitHub. No Chrome Web Store listing.
-- macOS is the primary platform. Linux must not break where the fix is small.
-- The version lives in three files. CI fails when they disagree.
+- Split `helper/main.py` if it gets unwieldy.
+- A download queue with progress, instead of one blocking request at a time.

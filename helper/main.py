@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 from contextlib import closing
 from pathlib import Path
@@ -26,7 +27,7 @@ from pydantic import BaseModel
 
 DEFAULT_AUDIO_DIR = Path.home() / "YTD_DJ"
 DEFAULT_VIDEO_DIR = Path.home() / "YTD_DJ_Video"
-# YTD_DJ_HOME overrides the config/state directory (used by tests and custom setups).
+
 CONFIG_DIR = Path(os.environ.get("YTD_DJ_HOME") or (Path.home() / ".ytd_dj")).expanduser()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 HISTORY_FILE = CONFIG_DIR / "history.json"
@@ -42,23 +43,20 @@ DEFAULT_MODEL_BY_PROVIDER = {
 }
 SUPPORTED_PROVIDERS = set(DEFAULT_MODEL_BY_PROVIDER.keys())
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
-# yt-dlp can read YouTube cookies straight out of a local browser profile.
-# YouTube asks for sign-in verification once a machine makes enough requests,
-# which downloading a playlist reliably triggers, and cookies are the fix.
+
+
 SUPPORTED_COOKIE_BROWSERS = {"chrome", "chromium", "brave", "edge", "firefox", "safari", "opera", "vivaldi"}
 REPO = "AbhinavMir/crateful"
 REMOTE_VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
 
-# A python.org build ships no system CA bundle, so plain urlopen() over HTTPS
-# fails with CERTIFICATE_VERIFY_FAILED. Always verify against certifi instead.
+
 SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 YOUTUBE_ID_RE = re.compile(
     r"(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|v/))([A-Za-z0-9_-]{11})"
 )
 
-# noplaylist is belt and braces: canonical_url already drops `&list=`, but a
-# link we cannot parse is passed through as-is and must never pull a playlist.
+
 YDL_BASE_OPTS = {
     "quiet": True,
     "no_warnings": True,
@@ -67,10 +65,7 @@ YDL_BASE_OPTS = {
 
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-# Browser callers must be the extension (any unpacked/store ID) or the
-# youtube.com content script. Any other web page that tries to reach the
-# helper is refused, so a malicious site cannot delete files or change config.
-# Requests without an Origin header (curl, scripts) are local tools and pass.
+
 ALLOWED_ORIGIN_PATTERN = r"^(chrome-extension://[a-p]{32}|https://www\.youtube\.com)$"
 ALLOWED_ORIGIN_RE = re.compile(ALLOWED_ORIGIN_PATTERN)
 
@@ -94,23 +89,56 @@ class OriginAllowlistMiddleware:
         await self.app(scope, receive, send)
 
 
+class ErrorEnvelopeMiddleware:
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def send_wrapper(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception as e:
+            traceback.print_exc()
+            if started:
+                raise
+            response = JSONResponse(
+                {"detail": f"Helper error: {type(e).__name__}: {e}"[:400]},
+                status_code=500,
+            )
+            await response(scope, receive, send)
+
+
 app = FastAPI(title="YTD_DJ Helper")
+
+
+app.add_middleware(ErrorEnvelopeMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=ALLOWED_ORIGIN_PATTERN,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Added last so it runs first (outermost): bad origins never reach CORS or routes.
+
 app.add_middleware(OriginAllowlistMiddleware, pattern=ALLOWED_ORIGIN_RE)
 
 
 class DownloadRequest(BaseModel):
     url: str
-    kind: str = "audio"  # "audio" or "video"
-    model: str | None = None  # one-off override of the configured model
-    folder: str | None = None  # explicit destination folder; skips the AI call
-    force: bool = False  # replace an existing download instead of adding a copy
+    kind: str = "audio"
+    model: str | None = None
+    folder: str | None = None
+    force: bool = False
 
 
 class ConfigUpdate(BaseModel):
@@ -171,7 +199,6 @@ class ReclassifyRequest(BaseModel):
 
 
 def _parse_config_file() -> dict:
-    """Parse the helper config file. Accepts JSON object or .env-style key=value lines."""
     if not CONFIG_FILE.exists():
         return {}
     try:
@@ -198,7 +225,6 @@ def _parse_config_file() -> dict:
 
 
 def read_config() -> dict:
-    """Return the merged effective config. Env vars override file; alias keys are normalized."""
     raw = _parse_config_file()
 
     def pick(*keys):
@@ -219,7 +245,7 @@ def read_config() -> dict:
     if cookies_browser not in SUPPORTED_COOKIE_BROWSERS:
         cookies_browser = ""
 
-    # Env overrides
+
     if os.environ.get("ANTHROPIC_API_KEY"):
         anthropic_key = os.environ["ANTHROPIC_API_KEY"]
     if os.environ.get("OPENAI_API_KEY"):
@@ -252,7 +278,7 @@ def active_api_key(cfg: dict | None = None) -> str | None:
         return cfg["openai_api_key"]
     if cfg["provider"] == "anthropic":
         return cfg["anthropic_api_key"]
-    return None  # ollama doesn't use a key
+    return None
 
 
 def audio_root() -> Path:
@@ -522,7 +548,6 @@ def history_update_path(root: str, old_rel: str, new_rel: str) -> None:
 
 
 def db_backfill_from_disk() -> int:
-    """Add files that exist on disk but aren't in the DB yet. Returns count added."""
     added = 0
     with closing(db_connect()) as conn:
         existing = {
@@ -581,7 +606,6 @@ def extract_video_id(url: str) -> str | None:
 
 
 def ydl_opts(**extra) -> dict:
-    """yt-dlp options with the user's cookie setting folded in."""
     opts = {**YDL_BASE_OPTS, **extra}
     browser = read_config().get("cookies_from_browser")
     if browser:
@@ -590,14 +614,6 @@ def ydl_opts(**extra) -> dict:
 
 
 def canonical_url(url: str) -> str:
-    """Reduce a YouTube link to just its video.
-
-    A watch URL usually carries more than the video id. `&list=` is the
-    dangerous one: yt-dlp reads it as a playlist, names the file after the
-    playlist, and downloads every entry. `&t=`, `&index=`, `&pp=` and `&si=`
-    are merely noise. Rebuilding the URL from the id alone removes all of it.
-    Anything we cannot parse is passed through untouched.
-    """
     vid = extract_video_id(url)
     return f"https://www.youtube.com/watch?v={vid}" if vid else url
 
@@ -629,7 +645,6 @@ def record_download(video_id: str | None, kind: str, rel_path: str) -> None:
 
 
 def friendly_ydl_error(e: Exception) -> str:
-    """Turn yt-dlp's wall of text into something a user can act on."""
     msg = str(e)
     if "not a bot" in msg or "cookies" in msg.lower():
         return ("YouTube wants sign-in verification from this machine. "
@@ -638,7 +653,6 @@ def friendly_ydl_error(e: Exception) -> str:
 
 
 def previous_download_path(kind: str, video_id: str | None) -> Path | None:
-    """Where this exact video was saved last time, if it is still on disk."""
     if not video_id:
         return None
     rel = read_history().get(video_id, {}).get(kind)
@@ -650,11 +664,6 @@ def previous_download_path(kind: str, video_id: str | None) -> Path | None:
 
 @app.get("/playlist")
 def playlist_info(url: str = Query(...), limit: int = Query(200, ge=1, le=500)):
-    """List the videos behind a playlist link, without downloading anything.
-
-    The extension walks this list and calls /download once per entry, so a
-    playlist reuses the single-video path and can report progress as it goes.
-    """
     opts = ydl_opts(skip_download=True, noplaylist=False, extract_flat="in_playlist")
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -897,14 +906,36 @@ def categorize(info: dict, folders: list[dict], model_override: str | None = Non
     cfg = read_config()
     user_msg = build_categorize_prompt(info, folders)
     model = (model_override or cfg["model"]).strip() if (model_override or cfg["model"]) else cfg["model"]
-    if cfg["provider"] == "openai":
-        return _categorize_openai(user_msg, model, cfg["openai_api_key"])
-    if cfg["provider"] == "ollama":
-        return _categorize_ollama(user_msg, model, cfg["ollama_url"])
-    return _categorize_anthropic(user_msg, model, cfg["anthropic_api_key"])
+    try:
+        if cfg["provider"] == "openai":
+            return _categorize_openai(user_msg, model, cfg["openai_api_key"])
+        if cfg["provider"] == "ollama":
+            return _categorize_ollama(user_msg, model, cfg["ollama_url"])
+        return _categorize_anthropic(user_msg, model, cfg["anthropic_api_key"])
+    except HTTPException:
+        raise
+    except json.JSONDecodeError:
+        raise
+    except Exception as e:
 
 
-# Junk that YouTube uploaders bolt onto titles. Stripped on the no-AI path.
+        raise HTTPException(502, provider_error_message(cfg["provider"], e)) from e
+
+
+def provider_error_message(provider: str, e: Exception) -> str:
+    name = {"anthropic": "Anthropic", "openai": "OpenAI", "ollama": "Ollama"}.get(provider, provider)
+    text = str(e)
+    status = getattr(e, "status_code", None)
+    if status == 401 or "authentication" in text.lower() or "api key" in text.lower():
+        return (f"{name} rejected the API key. Check the key in Settings, "
+                f"or pick a folder yourself from the menu to download without AI.")
+    if status == 429 or "rate limit" in text.lower():
+        return f"{name} is rate limiting. Wait, or pick a folder yourself to download without AI."
+    if status in (402, 403) or "credit" in text.lower() or "quota" in text.lower():
+        return f"{name} refused the request: {text[:160]}"
+    return f"{name} call failed: {text[:200]}"
+
+
 TITLE_NOISE_RE = re.compile(
     r"""\s*[\(\[]\s*(?:
         official\s*(?:music\s*)?(?:video|audio|visualiser|visualizer|lyric\s*video)?
@@ -951,16 +982,11 @@ def strip_title_noise(title: str) -> str:
 
 
 def split_artist_title(info: dict) -> tuple[str, str]:
-    """Best-effort artist/title without asking a model.
-
-    Used when the user picks the destination folder, so no AI call is made and
-    the download costs nothing.
-    """
     raw = (info.get("title") or "").strip()
     cleaned = strip_title_noise(raw)
     channel = clean_channel(info.get("uploader"))
 
-    # yt-dlp exposes real music metadata on topic channels and YouTube Music.
+
     meta_artist = (info.get("artist") or info.get("creator") or "").strip()
     meta_track = (info.get("track") or "").strip()
     if meta_artist and meta_track:
@@ -984,7 +1010,6 @@ def _coerce_bpm(value) -> int | None:
 
 
 def extract_bpm_key(info: dict) -> tuple[int | None, str | None]:
-    """Read a stated BPM and key out of the title or description. Never guesses."""
     haystack = f"{info.get('title') or ''}\n{(info.get('description') or '')[:600]}"
     bpm = None
     m = BPM_RE.search(haystack)
@@ -1053,8 +1078,8 @@ def write_id3(
             audio.tags["TALB"] = TALB(encoding=3, text=info["uploader"])
         if info.get("upload_date"):
             audio.tags["TDRC"] = TDRC(encoding=3, text=info["upload_date"][:4])
-        # Djay Pro and Rekordbox read these, so a track that states its BPM or
-        # key in the title arrives already sorted for mixing.
+
+
         if bpm:
             audio.tags["TBPM"] = TBPM(encoding=3, text=str(int(bpm)))
         if musical_key:
@@ -1204,7 +1229,7 @@ def version_info():
         )
         with urllib.request.urlopen(req, timeout=5, context=SSL_CONTEXT) as r:
             latest = r.read().decode().strip()
-    except OSError as e:  # URLError, SSLError and timeouts all subclass OSError
+    except OSError as e:
         error = str(e)
     return {
         "local": VERSION,
@@ -1228,7 +1253,6 @@ def yt_dlp_version() -> str | None:
 
 
 def _run(cmd: list[str], timeout: int = 300) -> str:
-    """Run a command; raise HTTPException(500) with its output on failure."""
     try:
         res = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout)
     except subprocess.CalledProcessError as e:
@@ -1248,7 +1272,6 @@ def _pip(*args: str) -> str:
 
 
 def _installed_version_subprocess(dist: str) -> str | None:
-    """Read a package version in a fresh interpreter so a just-upgraded install is seen."""
     code = (
         "import importlib.metadata as m, sys\n"
         "try: print(m.version(sys.argv[1]))\n"
@@ -1264,7 +1287,6 @@ def _installed_version_subprocess(dist: str) -> str | None:
 
 
 def _write_requirements_stamp() -> None:
-    """Tell run.sh that requirements.txt is already installed."""
     try:
         import hashlib
 
@@ -1276,23 +1298,16 @@ def _write_requirements_stamp() -> None:
 
 
 def refresh_deps() -> None:
-    """Install anything new in requirements.txt and move yt-dlp to the latest release."""
     _pip("-r", str(REQUIREMENTS_FILE))
     _pip("-U", "yt-dlp")
     _write_requirements_stamp()
 
 
 def restart_argv() -> list[str]:
-    """The canonical launch command, independent of how this process was started."""
     return [sys.executable, str(HELPER_DIR / "main.py")]
 
 
 def schedule_restart(delay: float = 1.0) -> None:
-    """Replace this process with a fresh helper after the response is sent.
-
-    exec keeps the PID and the environment, so it works with or without the
-    LaunchAgent: launchd sees no exit, and a plain `run.sh` session keeps going.
-    """
 
     def _restart():
         time.sleep(delay)
@@ -1326,7 +1341,6 @@ def update():
 
 @app.post("/update/yt-dlp")
 def update_yt_dlp():
-    """Upgrade yt-dlp in place. YouTube changes break old versions often."""
     before = yt_dlp_version()
     _pip("-U", "yt-dlp")
     after = _installed_version_subprocess("yt-dlp") or before
@@ -1358,9 +1372,8 @@ def download(req: DownloadRequest):
     except Exception as e:
         raise HTTPException(400, f"yt-dlp failed: {friendly_ydl_error(e)}") from e
     if info.get("_type") == "playlist" or info.get("entries"):
-        # canonical_url should have stripped the list parameter already. If a
-        # link still resolves to a playlist we refuse rather than quietly
-        # downloading every entry into someone's library.
+
+
         raise HTTPException(
             400, "That link is a playlist. Use the playlist option to download its videos."
         )
@@ -1369,8 +1382,8 @@ def download(req: DownloadRequest):
     video_id_hint = extract_video_id(url) or info.get("id")
 
     if req.folder is not None:
-        # The user picked the destination, so skip the model entirely: no API
-        # call, no cost, no wait. Artist and title come from the metadata.
+
+
         categorized = False
         target_dir = safe_path(kind, req.folder)
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -1405,8 +1418,8 @@ def download(req: DownloadRequest):
             or DEFAULT_ID3_BY_TYPE.get(content_type)
             or sub.replace("-", " ").title()
         )
-        # The model can also read a stated tempo or key out of the description.
-        # It is told never to invent one, so a null here just leaves ours.
+
+
         bpm = _coerce_bpm(decision.get("bpm")) or bpm
         musical_key = (str(decision.get("musical_key")).strip()
                        if decision.get("musical_key") else None) or musical_key
@@ -1416,9 +1429,7 @@ def download(req: DownloadRequest):
 
     base = NAME_CHARS.sub("", f"{artist} - {title}").strip() or "untitled"
 
-    # A repeat download normally lands beside the old file as "Track (1).mp3".
-    # With force we delete the previous copy of this exact video first, so
-    # re-downloading replaces rather than accumulates.
+
     replaced = None
     if req.force:
         previous = previous_download_path(kind, video_id_hint)
@@ -1441,7 +1452,7 @@ def download(req: DownloadRequest):
             ],
         )
         glob_ext = "mp3"
-    else:  # video
+    else:
         final_path = unique_path(target_dir, base, "mp4")
         opts = ydl_opts(
             format="bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
@@ -1533,11 +1544,6 @@ def check(url: str = Query(...)):
 
 @app.post("/check-bulk")
 def check_bulk(req: BulkCheckRequest):
-    """Which of these videos are already in the library.
-
-    A playlist page asks about every entry at once. One request beats one per
-    video, and it lets the extension skip what it already has.
-    """
     hist = read_history()
     roots = get_roots()
     out: dict[str, dict] = {}
@@ -1580,8 +1586,7 @@ def browse(root: str = Query("audio"), path: str = Query("")):
     if not target.exists() or not target.is_dir():
         raise HTTPException(404, "Folder not found")
 
-    # Preload DB state for all files in this root so we can attach per-file
-    # playback metadata without N round-trips.
+
     state_by_path: dict[str, dict] = {}
     try:
         with closing(db_connect()) as conn:
@@ -1892,7 +1897,6 @@ def reclassify(req: ReclassifyRequest):
 
 @app.get("/folders")
 def list_all_folders(root: str = Query(...)):
-    """Flat list of every directory under the given root, for move-to pickers."""
     base = root_for(root)
     out = []
     for child in base.rglob("*"):
@@ -1903,11 +1907,6 @@ def list_all_folders(root: str = Query(...)):
 
 
 def recent_folders(root: str, limit: int = 8) -> list[str]:
-    """Folders most recently downloaded into, newest first.
-
-    Drives the top of the folder picker, so the folders someone actually uses
-    are one click away instead of buried in an alphabetical list.
-    """
     base = root_for(root)
     seen: list[str] = []
     try:
@@ -1944,7 +1943,6 @@ PATH_PRESETS = {
 
 @app.get("/path-presets")
 def path_presets():
-    """Common destinations, so changing the library root does not mean typing a path."""
     out = []
     for name, path in PATH_PRESETS.items():
         out.append({

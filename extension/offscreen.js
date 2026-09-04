@@ -1,18 +1,8 @@
-// Lives in a hidden offscreen document so playback survives the popup
-// closing. Owns the only <audio> element used by the popup's player.
-//
-// Message protocol (chrome.runtime.sendMessage):
-//
-//   incoming { type: "audio-cmd", cmd, ...args }
-//   outgoing { type: "audio-state", state }
-//
-// The cmd "state" returns a synchronous response with the current state.
-
 const HELPER = "http://127.0.0.1:7531";
 const POSITION_THROTTLE_MS = 2000;
 
 const audio = document.getElementById("audio");
-let current = null; // { root, rel_path, title, completed }
+let current = null;
 let lastSaveAt = 0;
 
 function snapshot() {
@@ -25,7 +15,6 @@ function snapshot() {
 }
 
 function broadcast() {
-  // Best-effort fan-out to popup. If no listeners, ignore the rejection.
   try {
     chrome.runtime.sendMessage({ type: "audio-state", state: snapshot() }).catch(() => {});
   } catch (_) {}
@@ -103,18 +92,12 @@ async function fetchResumePoint(root, path) {
 async function handleCmd(msg) {
   switch (msg.cmd) {
     case "play": {
-      // If switching tracks mid-playback, persist the old position first.
       if (current) flushPosition(true);
 
       const root = msg.root;
       const path = msg.path;
       const title = msg.title || null;
 
-      // CRITICAL: fetch the resume point BEFORE setting audio.src.
-      // Setting src starts loading; if metadata loads while we await the
-      // fetch, the loadedmetadata event fires before we can attach a
-      // listener and the seek is silently dropped (this was the bug in
-      // 0.10.x).
       const { resumeAt, completed } = await fetchResumePoint(root, path);
 
       current = { root, rel_path: path, title, completed };
@@ -182,7 +165,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-// Announce ourselves so background's pending waiters can resolve. Best
-// effort — if no listener is up yet, background's safety-timeout ping
-// will catch us.
 chrome.runtime.sendMessage({ type: "offscreen-ready" }).catch(() => {});

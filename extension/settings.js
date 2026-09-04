@@ -219,8 +219,6 @@ $("reset-prompt").addEventListener("click", () => {
   $("prompt-status").textContent = "Reverted to default (not yet saved).";
 });
 
-// --- download button customiser -------------------------------------------
-
 const PRESET_LABELS = {
   notion: "Light red",
   solid: "Solid red",
@@ -254,8 +252,6 @@ function paintPreview() {
 function fillButtonInputs() {
   $("btn-label").value = buttonStyle.label;
   for (const key of ["bg", "fg", "border"]) {
-    // A colour input cannot hold "transparent", so the text field is the
-    // source of truth and the swatch falls back to something valid.
     $(`btn-${key}`).value = /^#[0-9a-f]{6}$/i.test(buttonStyle[key]) ? buttonStyle[key] : "#000000";
     $(`btn-${key}-text`).value = buttonStyle[key];
   }
@@ -334,7 +330,6 @@ async function loadButtonStyle() {
   paintPreview();
 }
 
-// Changing the library root should not mean typing a path by hand.
 async function loadPathPresets() {
   const wrap = $("path-presets");
   wrap.innerHTML = "";

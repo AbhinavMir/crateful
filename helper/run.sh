@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Start the helper. Creates the venv on first run, repairs it when the system
-# Python moved (a Homebrew upgrade breaks venv symlinks), and reinstalls deps
-# when requirements.txt changed since the last install.
-#
-#   ./run.sh               start the helper in the foreground
-#   ./run.sh --setup-only  prepare the venv and exit (used by install.sh)
 set -e
 cd "$(dirname "$0")"
 

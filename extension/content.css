@@ -1,5 +1,3 @@
-/* Colours come from the user's saved button style, set as inline custom
-   properties on the wrapper. The fallbacks are the light-red default. */
 #crateful-buttons {
   --cf-bg: #FDECEC;
   --cf-fg: #B42318;
@@ -42,12 +40,10 @@
 .cf-icon { width: 17px; height: 17px; display: block; }
 .cf-label { display: block; }
 
-/* Transient states override the custom colours so they stay readable. */
 .cf-btn.cf-ok { background: #E7F6E7; color: #15621B; border-color: #BFE3BF; }
 .cf-btn.cf-err { background: #F1F1F1; color: #444; border-color: #D6D6D6; }
 .cf-btn.cf-done { background: #E9F3EA; color: #1B6B22; border-color: #C3E0C6; }
 
-/* Menu, appended to body so YouTube's overflow rules cannot clip it. */
 .cf-menu {
   position: absolute;
   z-index: 2147483647;

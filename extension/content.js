@@ -1,11 +1,7 @@
 (function () {
-  // The background worker re-injects this file after an extension reload, and
-  // Chrome may also have injected it already. Running twice would attach a
-  // second MutationObserver to the page, so bail out if we are already here.
   if (window.__cratefulContentLoaded) return;
   window.__cratefulContentLoaded = true;
 
-  // Lets the background worker tell a live script from an orphaned one.
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg?.type === "crateful-ping") sendResponse({ alive: true });
   });
@@ -22,10 +18,10 @@
   let caretBtn = null;
   let style = { ...CF_DEFAULT_STYLE };
   let playlistPromise = null;
-  // The in-flight playlist run, so a second click can stop it.
+
   let running = null;
   let playlistCache = null;
-  // What the helper says already exists for this video: {audio, video}.
+
   let existing = { audio: null, video: null };
   const folderCache = { audio: null, video: null };
 
@@ -36,9 +32,6 @@
     return n;
   };
 
-  // YouTube keeps several copies of these components in the DOM and renders
-  // only one. querySelector returns the first, which is usually a zero-sized
-  // leftover, so match on what is actually laid out.
   function firstVisible(selectors) {
     for (const sel of selectors) {
       for (const node of document.querySelectorAll(sel)) {
@@ -66,8 +59,6 @@
   function findAnchor() {
     return firstVisible(isPlaylistPage() ? PLAYLIST_ANCHORS : WATCH_ANCHORS);
   }
-
-  // --- button face ----------------------------------------------------------
 
   function renderMain(state, text) {
     mainBtn.className = "cf-btn cf-main" + (state ? " cf-" + state : "");
@@ -108,9 +99,6 @@
     }
   }
 
-  // --- downloading ----------------------------------------------------------
-
-  // folder null means let the AI file it; a string puts it exactly there.
   async function download({ kind = "audio", folder = null, force = false, url = null } = {}) {
     closeMenu();
     mainBtn.disabled = true;
@@ -118,7 +106,7 @@
     try {
       const data = await postDownload({ kind, folder, force, url });
       renderMain("ok", `Saved → ${data.folder || "library"}`);
-      folderCache[kind] = null; // the folder list may have grown
+      folderCache[kind] = null;
       existing[kind] = data.rel_path;
       setTimeout(setIdle, 2200);
     } catch (e) {
@@ -150,16 +138,16 @@
     const msg = e.message || String(e);
     const isYtDlp = /yt-dlp/i.test(msg);
     const isDown = /failed to fetch|networkerror/i.test(msg);
+    const isKey = /api key|rate limit/i.test(msg);
     mainBtn.title = msg;
     renderMain("err",
-      isYtDlp ? "yt-dlp failed — update in Settings"
+      isKey ? "AI key rejected — see Settings"
+        : isYtDlp ? "yt-dlp failed — update in Settings"
         : isDown ? "Helper not running"
         : msg.length > 46 ? msg.slice(0, 43) + "…" : msg);
-    setTimeout(setIdle, isYtDlp || isDown ? 8000 : 4000);
+    setTimeout(setIdle, isYtDlp || isDown || isKey ? 8000 : 4000);
   }
 
-  // Which of these videos the library already holds, so a re-run resumes
-  // instead of downloading everything a second time.
   async function alreadyHave(entries, kind) {
     try {
       const res = await fetch(`${HELPER}/check-bulk`, {
@@ -179,15 +167,13 @@
     }
   }
 
-  // One video at a time. Progress is real, a single bad entry does not sink
-  // the rest, and each track is filed on its own like any single download.
   async function downloadPlaylist(entries, { kind = "audio", folder = null, skipExisting = true } = {}) {
     closeMenu();
     if (running) { running.cancelled = true; return; }
 
     const run = { cancelled: false };
     running = run;
-    mainBtn.disabled = false;               // stays clickable, to cancel
+    mainBtn.disabled = false;
     mainBtn.title = "Click to stop after the current track";
 
     const have = skipExisting ? await alreadyHave(entries, kind) : new Set();
@@ -219,8 +205,6 @@
     setTimeout(setIdle, 6000);
   }
 
-  // --- helper lookups -------------------------------------------------------
-
   async function fetchFolders(root) {
     if (folderCache[root]) return folderCache[root];
     const res = await fetch(`${HELPER}/folders?root=${root}`);
@@ -230,9 +214,6 @@
     return folderCache[root];
   }
 
-  // Listing a playlist costs a yt-dlp round trip, around 3 seconds for 40
-  // entries. Start it as soon as the page loads and keep the promise, so the
-  // menu can show the result immediately instead of waiting on a click.
   function primePlaylist() {
     playlistPromise = null;
     if (!/[?&]list=/.test(location.href)) return;
@@ -265,8 +246,6 @@
     if (mainBtn) setIdle();
   }
 
-  // --- menu -----------------------------------------------------------------
-
   function closeMenu() {
     if (menuEl) {
       menuEl.remove();
@@ -279,15 +258,11 @@
     if (e.key === "Escape") { e.stopPropagation(); closeMenu(); }
   }
 
-  // YouTube re-renders around us, so the node can vanish without closeMenu
-  // running. Trusting the variable alone would leave a click that does nothing.
   function menuIsOpen() {
     if (menuEl && !menuEl.isConnected) menuEl = null;
     return menuEl !== null;
   }
 
-  // The action row sits low on the page, so a menu anchored below the caret
-  // usually runs off the bottom. Flip it above when there is more room there.
   function positionMenu() {
     if (!menuEl) return;
     const GAP = 8;
@@ -364,7 +339,6 @@
         ));
       }
 
-      // On a playlist page every folder choice applies to the whole playlist.
       const forPlaylist = isPlaylistPage() && playlist;
       const pick = (folder) => (forPlaylist
         ? downloadPlaylist(playlist.entries, { kind: root, folder })
@@ -444,7 +418,6 @@
     search.focus();
     load();
 
-    // Usually already resolved from the page load; fold it in either way.
     if (playlistPromise) {
       playlistPromise.then((p) => {
         playlistPending = false;
@@ -457,8 +430,6 @@
   }
 
   document.addEventListener("click", () => closeMenu());
-
-  // --- injection ------------------------------------------------------------
 
   function injectButtons() {
     if (!isWatchPage() && !isPlaylistPage()) return;
@@ -502,7 +473,6 @@
     primePlaylist();
   }
 
-  // Restyle live when the settings page saves, with no page reload.
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes[CF_STYLE_KEY]) return;
     style = cfNormalizeStyle(changes[CF_STYLE_KEY].newValue);

@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# One-command setup for YTD_DJ.
-#
-#   ./install.sh               check deps, build the venv, install the background service (macOS)
-#   ./install.sh --no-service  same, but do not install the LaunchAgent
-#
-# Safe to run again: every step is idempotent.
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PORT=7531

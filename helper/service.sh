@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Install/uninstall the Crateful helper as a macOS LaunchAgent.
-# Usage:
-#   ./service.sh install   # generate + load plist (starts now, runs at login)
-#   ./service.sh uninstall # unload + remove plist
-#   ./service.sh restart   # unload + load (use after editing main.py)
-#   ./service.sh status    # show running state + last log lines
-#   ./service.sh log       # tail the log
 
 set -e
 HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"

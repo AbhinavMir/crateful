@@ -1,7 +1,3 @@
-// Shared button appearance. Loaded by the content script and the settings page.
-//
-// Presets are starting points, not a closed set: every field stays editable,
-// so "Custom" is just a preset somebody has since edited.
 const CF_PRESETS = {
   notion: { label: "Download", bg: "#FDECEC", fg: "#B42318", border: "#F5C6C4", radius: 8, icon: true },
   solid: { label: "Download", bg: "#CC0000", fg: "#FFFFFF", border: "#CC0000", radius: 18, icon: false },
@@ -34,7 +30,6 @@ async function cfSaveStyle(style) {
   await chrome.storage.local.set({ [CF_STYLE_KEY]: cfNormalizeStyle(style) });
 }
 
-// Applied as inline custom properties so the stylesheet itself stays static.
 function cfApplyStyle(wrap, style) {
   wrap.style.setProperty("--cf-bg", style.bg);
   wrap.style.setProperty("--cf-fg", style.fg);

@@ -5,8 +5,8 @@ const params = new URLSearchParams(location.search);
 let currentRoot = params.get("root") === "video" ? "video" : "audio";
 let currentPath = "";
 let currentData = null;
-let currentFile = null; // {root, rel_path, stem, ext, duration_sec, completed, ...}
-let lastSaveAt = 0; // wall-clock ms of the last successful position write
+let currentFile = null;
+let lastSaveAt = 0;
 const POSITION_THROTTLE_MS = 2000;
 
 function fmtSize(bytes) {
@@ -238,7 +238,6 @@ async function renderContinueListening(container) {
     }
     container.appendChild(section);
   } catch (e) {
-    // silent
   }
 }
 
@@ -276,7 +275,6 @@ function getActiveMedia() {
 }
 
 async function play(f) {
-  // Persist whatever the previous track was at before swapping.
   if (currentFile) {
     const media = getActiveMedia();
     if (media && media.currentTime > 0) {
@@ -303,8 +301,6 @@ async function play(f) {
   other.removeAttribute("src");
   other.classList.add("hidden");
   media.classList.remove("hidden");
-  // src is set later, after the resume fetch completes and the
-  // loadedmetadata listener is attached.
 
   currentFile = {
     root: currentRoot,
@@ -316,10 +312,6 @@ async function play(f) {
   };
   lastSaveAt = 0;
 
-  // Fetch DB state for resume BEFORE setting src + attaching the
-  // loadedmetadata listener. If we set src first and then awaited the
-  // fetch, the metadata could load (and fire) during the await, before
-  // the listener exists, and the seek would silently drop.
   let dbState = f.playback || null;
   try {
     const r = await fetch(`${HELPER}/db/file?root=${currentRoot}&path=${encodeURIComponent(f.rel_path)}`);
@@ -338,7 +330,6 @@ async function play(f) {
   };
   media.addEventListener("loadedmetadata", onLoaded, { once: true });
 
-  // Setting src last ensures the listener is attached before load starts.
   media.src = url;
 
   bar.classList.remove("hidden");
@@ -468,8 +459,6 @@ $("refresh").addEventListener("click", () => {
   load();
 });
 $("player-close").addEventListener("click", closePlayer);
-
-// ---- File ops ----
 
 function showFileContextMenu(x, y, file, rowEl) {
   const menu = $("context-menu");

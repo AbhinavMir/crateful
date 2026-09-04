@@ -167,7 +167,6 @@ input:focus, textarea:focus {
 
 .hidden { display: none !important; }
 
-/* Quick destinations for the library root. */
 .presets {
   display: flex;
   flex-wrap: wrap;
@@ -187,7 +186,6 @@ input:focus, textarea:focus {
 .preset:hover { background: #303030; color: #fff; border-color: #4a4a4a; }
 .preset.active { background: #cc0000; border-color: #cc0000; color: #fff; }
 
-/* Download-button customiser. */
 .preview-row {
   display: flex;
   align-items: center;

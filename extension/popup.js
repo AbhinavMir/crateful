@@ -6,11 +6,7 @@ let allItems = [];
 let libraryRoot = "";
 let currentRoot = "audio";
 
-// All popup playback is delegated to a hidden offscreen document so audio
-// survives the popup being closed. The popup is purely a remote control:
-// it sends commands and renders the latest broadcast state.
-
-let ppCurrent = null; // mirror of offscreen's current track
+let ppCurrent = null;
 let ppPaused = true;
 let ppDuration = 0;
 let ppCurrentTime = 0;
@@ -26,14 +22,10 @@ function fmtTime(sec) {
 }
 
 async function sendAudioCmd(cmd, extra = {}) {
-  // Background proxies this through the offscreen document and waits for
-  // the offscreen's ready handshake before forwarding, so we don't have
-  // to deal with the listener-not-yet-registered race here.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const resp = await chrome.runtime.sendMessage({ type: "audio-cmd", cmd, ...extra });
       if (resp && resp.error) {
-        // Receiver-side issue; retry after a short delay.
         if (attempt < 2) {
           await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
           continue;
@@ -43,8 +35,6 @@ async function sendAudioCmd(cmd, extra = {}) {
       }
       return resp ?? null;
     } catch (e) {
-      // "Could not establish connection" — service worker booting or
-      // offscreen not yet alive. Brief retry.
       if (attempt < 2) {
         await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
         continue;
@@ -93,7 +83,6 @@ function highlightPlayingRow(rel_path) {
 }
 
 async function ppPlay(rel_path, info = {}) {
-  // Video files: hand off to the library tab.
   const ext = (rel_path.split(".").pop() || "").toLowerCase();
   if (currentRoot !== "audio" || (ext !== "mp3" && ext !== "m4a")) {
     chrome.tabs.create({
@@ -136,13 +125,10 @@ $("pp-bar-track").addEventListener("click", (e) => {
   ppSeekTo(Math.max(0, Math.min(1, frac)));
 });
 
-// Listen for broadcast state updates from the offscreen player.
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "audio-state") applyState(msg.state);
 });
 
-// Poll once on open and on a slow interval as a safety net for missed
-// broadcasts. The chrome.runtime.sendMessage events are best-effort.
 async function pollOffscreenState() {
   const state = await sendAudioCmd("state");
   if (state) applyState(state);

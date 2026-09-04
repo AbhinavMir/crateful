@@ -197,14 +197,13 @@ Changing the port also means editing `HELPER` in `extension/content.js`, `popup.
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). In short:
+The helper is one file, `helper/main.py`. The extension is plain JavaScript in `extension/`, no build step.
 
-```bash
-cd helper
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/ruff check .
-.venv/bin/pytest
-```
+- After editing `helper/main.py`, run `helper/service.sh restart`.
+- After editing `content.js`, `background.js`, or `manifest.json`, reload the extension on `chrome://extensions`.
+- Extension pages reload themselves each time you open them.
+
+Cut a release with `scripts/release.sh 0.16.0 --push`, which bumps the version in all three files, tags it, and lets the workflow publish the GitHub Release.
 
 ## Limitations
 
