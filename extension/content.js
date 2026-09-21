@@ -145,13 +145,15 @@
     const isYtDlp = /yt-dlp/i.test(msg);
     const isDown = /failed to fetch|networkerror/i.test(msg);
     const isKey = /api key|rate limit/i.test(msg);
+    const isFfmpeg = /ffmpeg|ffprobe/i.test(msg);
     mainBtn.title = msg;
     renderMain("err",
-      isKey ? "AI key rejected — see Settings"
+      isFfmpeg ? "ffmpeg broken — brew reinstall ffmpeg"
+        : isKey ? "AI key rejected — see Settings"
         : isYtDlp ? "yt-dlp failed — update in Settings"
         : isDown ? "Helper not running"
         : msg.length > 46 ? msg.slice(0, 43) + "…" : msg);
-    setTimeout(setIdle, isYtDlp || isDown || isKey ? 8000 : 4000);
+    setTimeout(setIdle, isYtDlp || isDown || isKey || isFfmpeg ? 8000 : 4000);
   }
 
   async function alreadyHave(entries, kind) {

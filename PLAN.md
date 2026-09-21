@@ -24,6 +24,11 @@ audio into AI-categorized folders.
 - `cookies_from_browser` for when YouTube asks for sign-in verification.
 - Provider failures return 502 with a readable message, and unhandled errors
   return JSON that still carries CORS headers.
+- AI filing is optional. Without a working key, downloads go to `unsorted/general`.
+- Mixes are supported. `/playlist` stops yt-dlp at the limit (default 50).
+- `/status` and `/download` run `ffmpeg -version` and `ffprobe -version`. A binary
+  that exists but cannot start (for example after a Homebrew library upgrade) is
+  reported as broken, with the fix.
 
 ## Later
 

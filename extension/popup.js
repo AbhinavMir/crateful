@@ -220,7 +220,7 @@ async function checkStatus() {
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
     const parts = [];
-    if (!data.ffmpeg) parts.push("ffmpeg missing");
+    if (!data.ffmpeg) parts.push(data.ffmpeg_error ? "ffmpeg broken" : "ffmpeg missing");
     if (!data.has_api_key) parts.push("no API key");
     if (parts.length) {
       el.className = "status err";

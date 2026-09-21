@@ -651,11 +651,30 @@ def record_download(video_id: str | None, kind: str, rel_path: str) -> None:
     write_history(hist)
 
 
+def ffmpeg_problem() -> str | None:
+    for tool in ("ffmpeg", "ffprobe"):
+        path = shutil.which(tool)
+        if not path:
+            return f"{tool} not found. Run: brew install ffmpeg"
+        try:
+            r = subprocess.run([path, "-hide_banner", "-version"],
+                               capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return f"{tool} does not start: {e}. Run: brew reinstall ffmpeg"
+        if r.returncode != 0:
+            out = (r.stderr or r.stdout or "").strip().splitlines()
+            reason = out[0][:160] if out else f"exit code {r.returncode}"
+            return f"{tool} does not start ({reason}). Run: brew reinstall ffmpeg"
+    return None
+
+
 def friendly_ydl_error(e: Exception) -> str:
     msg = str(e)
     if "not a bot" in msg or "cookies" in msg.lower():
         return ("YouTube wants sign-in verification from this machine. "
                 "Set 'Use cookies from browser' in Settings.")
+    if "ffprobe" in msg or "ffmpeg" in msg.lower():
+        return ffmpeg_problem() or f"ffmpeg failed: {msg}"
     return msg
 
 
@@ -1108,6 +1127,7 @@ def write_id3(
 def status():
     cfg = read_config()
     needs_key = cfg["provider"] in {"anthropic", "openai"}
+    ffmpeg_error = ffmpeg_problem()
     return {
         "ok": True,
         "version": VERSION,
@@ -1115,7 +1135,8 @@ def status():
         "video_root": str(video_root()),
         "yt_dlp": shutil.which("yt-dlp") or "python module",
         "yt_dlp_version": yt_dlp_version(),
-        "ffmpeg": shutil.which("ffmpeg") is not None,
+        "ffmpeg": ffmpeg_error is None,
+        "ffmpeg_error": ffmpeg_error,
         "provider": cfg["provider"],
         "model": cfg["model"],
         "has_api_key": (not needs_key) or bool(active_api_key(cfg)),
@@ -1377,8 +1398,9 @@ def download(req: DownloadRequest):
     kind = req.kind if req.kind in roots else "audio"
     base_root = roots[kind]
 
-    if not shutil.which("ffmpeg"):
-        raise HTTPException(500, "ffmpeg not found. Run: brew install ffmpeg")
+    problem = ffmpeg_problem()
+    if problem:
+        raise HTTPException(500, problem)
 
     url = canonical_url(req.url)
     try:
