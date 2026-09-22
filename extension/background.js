@@ -119,6 +119,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  if (msg.type === "crateful-progress") {
+    fetch("http://127.0.0.1:7531/progress", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+
   if (msg.type === "open-settings") {
     chrome.tabs.create({ url: chrome.runtime.getURL("settings.html") });
     return;

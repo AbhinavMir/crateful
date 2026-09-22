@@ -1,0 +1,202 @@
+(function () {
+  if (window.__cratefulDashboard) return;
+  window.__cratefulDashboard = true;
+
+  const CSS = `
+    :root { color-scheme: dark; }
+    html, body { margin: 0; padding: 0; background: #0f0f10; }
+    body {
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #ededed;
+      display: flex;
+      justify-content: center;
+    }
+    .cfd-wrap { width: 100%; max-width: 720px; padding: 48px 24px 80px; }
+    .cfd-top { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+    .cfd-top img { width: 40px; height: 40px; }
+    .cfd-top h1 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+    .cfd-sub { margin: 0 0 32px 54px; color: #8b8b8f; font-size: 14px; }
+    .cfd-state {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 15px; margin-bottom: 24px; color: #b9b9be;
+    }
+    .cfd-dot { width: 9px; height: 9px; border-radius: 50%; background: #444; flex: none; }
+    .cfd-dot.live { background: #3fb950; box-shadow: 0 0 0 4px rgba(63,185,80,0.16); }
+    .cfd-dot.off { background: #f0883e; }
+    .cfd-head {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #6e6e73; margin: 28px 0 10px;
+    }
+    .cfd-card {
+      background: #18181b; border: 1px solid #27272b; border-radius: 12px;
+      padding: 16px 18px; margin-bottom: 10px;
+    }
+    .cfd-title {
+      font-size: 15px; font-weight: 550; margin-bottom: 4px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .cfd-meta { font-size: 12.5px; color: #8b8b8f; display: flex; gap: 14px; flex-wrap: wrap; }
+    .cfd-bar {
+      height: 6px; background: #2a2a2e; border-radius: 999px;
+      overflow: hidden; margin: 12px 0 9px;
+    }
+    .cfd-fill {
+      height: 100%; background: #B42318; border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+    .cfd-fill.converting { background: #d0a215; }
+    .cfd-card.done { border-color: #1f3b22; }
+    .cfd-card.done .cfd-title { color: #8fd48f; }
+    .cfd-card.failed { border-color: #4a2020; }
+    .cfd-card.failed .cfd-title { color: #f5a3a3; }
+    .cfd-empty { color: #6e6e73; font-size: 14px; padding: 6px 0 0; }
+    .cfd-foot { margin-top: 40px; font-size: 12px; color: #55555a; }
+  `;
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  function fmtBytes(n) {
+    if (!n) return null;
+    const u = ["B", "KB", "MB", "GB"];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return `${n < 10 ? n.toFixed(1) : Math.round(n)} ${u[i]}`;
+  }
+
+  function fmtEta(s) {
+    if (s === null || s === undefined) return null;
+    const m = Math.floor(s / 60), r = Math.round(s % 60);
+    return m ? `${m}m ${r}s left` : `${r}s left`;
+  }
+
+  function build() {
+    document.documentElement.replaceChildren();
+    const head = el("head");
+    const style = el("style");
+    style.textContent = CSS;
+    const title = el("title", null, "Crateful");
+    const meta = el("meta");
+    meta.setAttribute("name", "viewport");
+    meta.setAttribute("content", "width=device-width, initial-scale=1");
+    const icon = el("link");
+    icon.rel = "icon";
+    icon.href = chrome.runtime.getURL("icons/icon-128.png");
+    head.append(meta, title, style, icon);
+
+    const body = el("body");
+    const wrap = el("div", "cfd-wrap");
+    wrap.id = "crateful-dashboard";
+    const top = el("div", "cfd-top");
+    const logo = el("img");
+    logo.src = chrome.runtime.getURL("icons/icon-128.png");
+    logo.alt = "";
+    top.append(logo, el("h1", null, "Crateful"));
+    const sub = el("p", "cfd-sub", "Downloads on this machine");
+    const state = el("div", "cfd-state");
+    const dot = el("span", "cfd-dot");
+    const stateText = el("span", null, "Connecting…");
+    state.append(dot, stateText);
+    const list = el("div");
+    const foot = el("div", "cfd-foot", "This page is drawn by the Crateful extension.");
+    wrap.append(top, sub, state, list, foot);
+    body.append(wrap);
+    document.documentElement.append(head, body);
+    return { dot, stateText, list };
+  }
+
+  let ui = build();
+
+  function reassert() {
+    if (!document.getElementById("crateful-dashboard")) {
+      ui = build();
+      poll();
+    }
+  }
+  document.addEventListener("DOMContentLoaded", reassert);
+  window.addEventListener("load", reassert);
+
+  function card(job, finished) {
+    const c = el("div", "cfd-card" + (finished ? " " + job.status : ""));
+    c.appendChild(el("div", "cfd-title", job.title || job.url));
+
+    if (!finished) {
+      const bar = el("div", "cfd-bar");
+      const fill = el("div", "cfd-fill" + (job.status === "converting" ? " converting" : ""));
+      fill.style.width = `${Math.max(2, job.percent || 0)}%`;
+      bar.appendChild(fill);
+      c.appendChild(bar);
+    }
+
+    const bits = [];
+    if (finished) {
+      bits.push(job.status === "done" ? "Saved" : "Failed");
+      if (job.rel_path) bits.push(job.rel_path);
+      if (job.error) bits.push(job.error);
+    } else if (job.status === "converting") {
+      bits.push("Converting to " + (job.kind === "video" ? "MP4" : "MP3"));
+    } else if (job.status === "starting") {
+      bits.push("Starting");
+    } else {
+      bits.push(`${(job.percent || 0).toFixed(0)}%`);
+      const got = fmtBytes(job.downloaded_bytes);
+      const total = fmtBytes(job.total_bytes);
+      if (got && total) bits.push(`${got} of ${total}`);
+      const sp = fmtBytes(job.speed);
+      if (sp) bits.push(`${sp}/s`);
+      const eta = fmtEta(job.eta);
+      if (eta) bits.push(eta);
+      if (job.folder) bits.push(`→ ${job.folder}`);
+    }
+    const meta = el("div", "cfd-meta");
+    for (const b of bits) meta.appendChild(el("span", null, b));
+    c.appendChild(meta);
+    return c;
+  }
+
+  function render(data) {
+    const { active, recent } = data;
+    ui.dot.className = "cfd-dot live";
+    ui.stateText.textContent = active.length
+      ? `${active.length} ${active.length === 1 ? "download" : "downloads"} in progress`
+      : "Nothing downloading";
+
+    ui.list.replaceChildren();
+    if (active.length) {
+      ui.list.appendChild(el("div", "cfd-head", "In progress"));
+      for (const j of active) ui.list.appendChild(card(j, false));
+    }
+    if (recent.length) {
+      ui.list.appendChild(el("div", "cfd-head", "Recent"));
+      for (const j of recent.slice(0, 10)) ui.list.appendChild(card(j, true));
+    }
+    if (!active.length && !recent.length) {
+      ui.list.appendChild(el("div", "cfd-empty", "No downloads yet. Hit Download on a YouTube page."));
+    }
+  }
+
+  function offline(reason) {
+    ui.dot.className = "cfd-dot off";
+    ui.stateText.textContent = "Helper not running";
+    ui.list.replaceChildren();
+    ui.list.appendChild(el("div", "cfd-empty", reason || "Start it with helper/run.sh"));
+  }
+
+  async function poll() {
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: "crateful-progress" });
+      if (resp && resp.ok) render(resp.data);
+      else offline();
+    } catch (e) {
+      offline();
+    }
+  }
+
+  poll();
+  setInterval(poll, 1000);
+})();

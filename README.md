@@ -113,6 +113,14 @@ Playback state lives in SQLite at `~/.ytd_dj/library.db`. It records position, c
 
 Change the provider, the model, and the categorization prompt on the Settings page. Edit the prompt if the model keeps choosing folders you do not want.
 
+## Live progress on crateful.com
+
+The extension replaces the page at `crateful.com` with a live view of what this machine downloads: each file in progress with a bar, size, speed and time left, then the recent ones with where they landed. It refreshes every second.
+
+The page never talks to the helper. The content script asks the extension's background worker, and only the worker holds the helper's address. So `crateful.com` stays outside the helper's origin allowlist, and a script on that site cannot reach your library.
+
+`GET /progress` returns the same data for any other use.
+
 ## Security
 
 The helper listens on `127.0.0.1` only, so nothing outside your machine can reach it. It also checks the `Origin` header: only the extension (`chrome-extension://...`) and `https://www.youtube.com` are accepted. Any other web page that tries to reach `127.0.0.1:7531` gets a 403, so a page you visit cannot delete your files or read your config. Requests with no `Origin` header, such as curl, are treated as local tools and allowed.
@@ -146,6 +154,7 @@ Logs go to `~/.ytd_dj/helper.log`.
 | GET, PUT | `/config` | read and write settings |
 | POST | `/test-key` | check a provider key or the Ollama URL |
 | POST | `/download` | `{url, kind: audio\|video, model?, folder?, force?}` |
+| GET | `/progress` | downloads in progress, and recent ones |
 | GET | `/playlist?url=` | list a playlist's videos, without downloading |
 | POST | `/check-bulk` | which of these video ids are already saved |
 | GET | `/check?url=` | is this video already downloaded |

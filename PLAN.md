@@ -30,6 +30,10 @@ audio into AI-categorized folders.
   that exists but cannot start (for example after a Homebrew library upgrade) is
   reported as broken, with the fix.
 
+- `/progress` reports live download state from yt-dlp progress hooks. The
+  extension replaces `crateful.com` with a dashboard that polls it through the
+  background worker, so the site itself never reaches the helper.
+
 ## Later
 
 - Split `helper/main.py` if it gets unwieldy.

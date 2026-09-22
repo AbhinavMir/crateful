@@ -12,6 +12,7 @@ import threading
 import time
 import traceback
 import urllib.request
+import uuid
 from contextlib import closing
 from pathlib import Path
 
@@ -603,6 +604,90 @@ def extract_video_id(url: str) -> str | None:
         return None
     m = YOUTUBE_ID_RE.search(url)
     return m.group(1) if m else None
+
+
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
+JOB_HISTORY = 20
+
+
+def job_start(job_id: str, url: str, kind: str, title: str | None) -> None:
+    with JOBS_LOCK:
+        JOBS[job_id] = {
+            "id": job_id,
+            "url": url,
+            "kind": kind,
+            "title": title or url,
+            "status": "starting",
+            "percent": 0.0,
+            "downloaded_bytes": 0,
+            "total_bytes": None,
+            "speed": None,
+            "eta": None,
+            "folder": None,
+            "rel_path": None,
+            "error": None,
+            "started_at": time.time(),
+            "finished_at": None,
+        }
+        trim_jobs()
+
+
+def job_update(job_id: str, **fields) -> None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if job:
+            job.update(fields)
+
+
+def job_finish(job_id: str, status: str, **fields) -> None:
+    job_update(job_id, status=status, finished_at=time.time(), **fields)
+
+
+def trim_jobs() -> None:
+    done = [j for j in JOBS.values() if j["finished_at"]]
+    done.sort(key=lambda j: j["finished_at"])
+    for job in done[:-JOB_HISTORY]:
+        JOBS.pop(job["id"], None)
+
+
+def make_progress_hook(job_id: str):
+    def hook(d):
+        if d.get("status") == "downloading":
+            total = d.get("total_bytes") or d.get("total_bytes_estimate")
+            got = d.get("downloaded_bytes") or 0
+            job_update(
+                job_id,
+                status="downloading",
+                percent=round(got / total * 100, 1) if total else 0.0,
+                downloaded_bytes=got,
+                total_bytes=total,
+                speed=d.get("speed"),
+                eta=d.get("eta"),
+            )
+        elif d.get("status") == "finished":
+            job_update(job_id, status="converting", percent=100.0, speed=None, eta=None)
+    return hook
+
+
+def make_postprocessor_hook(job_id: str):
+    def hook(d):
+        if d.get("status") == "started":
+            job_update(job_id, status="converting")
+    return hook
+
+
+@app.get("/progress")
+def progress():
+    with JOBS_LOCK:
+        jobs = sorted(JOBS.values(), key=lambda j: j["started_at"], reverse=True)
+        jobs = [dict(j) for j in jobs]
+    active = [j for j in jobs if not j["finished_at"]]
+    return {
+        "active": active,
+        "recent": [j for j in jobs if j["finished_at"]],
+        "active_count": len(active),
+    }
 
 
 def ydl_opts(**extra) -> dict:
@@ -1403,12 +1488,17 @@ def download(req: DownloadRequest):
         raise HTTPException(500, problem)
 
     url = canonical_url(req.url)
+    job_id = uuid.uuid4().hex
+    job_start(job_id, url, kind, None)
     try:
         with yt_dlp.YoutubeDL(ydl_opts(skip_download=True)) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
+        job_finish(job_id, "failed", error=friendly_ydl_error(e))
         raise HTTPException(400, f"yt-dlp failed: {friendly_ydl_error(e)}") from e
+    job_update(job_id, title=info.get("title") or url)
     if info.get("_type") == "playlist" or info.get("entries"):
+        job_finish(job_id, "failed", error="That link is a playlist.")
 
 
         raise HTTPException(
@@ -1494,6 +1584,8 @@ def download(req: DownloadRequest):
         opts = ydl_opts(
             format="bestaudio/best",
             outtmpl=str(final_path.with_suffix("")) + ".%(ext)s",
+            progress_hooks=[make_progress_hook(job_id)],
+            postprocessor_hooks=[make_postprocessor_hook(job_id)],
             postprocessors=[
                 {
                     "key": "FFmpegExtractAudio",
@@ -1509,13 +1601,17 @@ def download(req: DownloadRequest):
             format="bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             merge_output_format="mp4",
             outtmpl=str(final_path.with_suffix("")) + ".%(ext)s",
+            progress_hooks=[make_progress_hook(job_id)],
+            postprocessor_hooks=[make_postprocessor_hook(job_id)],
         )
         glob_ext = "mp4"
 
+    job_update(job_id, folder="/".join(x for x in (top, sub) if x))
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
     except Exception as e:
+        job_finish(job_id, "failed", error=friendly_ydl_error(e))
         raise HTTPException(500, f"yt-dlp download failed: {friendly_ydl_error(e)}") from e
 
     if not final_path.exists():
@@ -1529,6 +1625,7 @@ def download(req: DownloadRequest):
         write_id3(final_path, info, title, artist, id3_genre, bpm, musical_key)
 
     rel_path = str(final_path.relative_to(base_root))
+    job_finish(job_id, "done", percent=100.0, rel_path=rel_path, title=title)
     video_id = video_id_hint
     record_download(video_id, kind, rel_path)
     try:
