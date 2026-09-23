@@ -65,6 +65,15 @@
     .cfd-card.failed .cfd-title { color: #f5a3a3; }
     .cfd-empty { color: #6e6e73; font-size: 14px; padding: 6px 0 0; }
     .cfd-foot { margin-top: 40px; font-size: 12px; color: #55555a; }
+    .cfd-card-row { display: flex; align-items: center; gap: 14px; }
+    .cfd-card-main { flex: 1; min-width: 0; }
+    .cfd-reveal {
+      flex: none; background: #24242a; border: 1px solid #34343a; border-radius: 8px;
+      color: #b9b9be; padding: 7px 12px; font: inherit; font-size: 12.5px;
+      cursor: pointer; white-space: nowrap;
+    }
+    .cfd-reveal:hover { background: #2f2f36; border-color: #45454c; color: #ededed; }
+    .cfd-reveal.done { color: #8fd48f; border-color: #2f4a30; }
     .cfd-card.playable { cursor: pointer; }
     .cfd-card.playable:hover { border-color: #3d3d43; background: #1d1d21; }
     .cfd-card.playing { border-color: #B42318; }
@@ -211,6 +220,25 @@
     render(lastData);
   }
 
+  function revealButton(job) {
+    const b = el("button", "cfd-reveal", "Show in folder");
+    b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      b.disabled = true;
+      const resp = await chrome.runtime.sendMessage({
+        type: "crateful-reveal", root: job.kind, path: job.rel_path,
+      }).catch(() => null);
+      b.textContent = resp && resp.ok ? "Opened" : "Could not open";
+      b.className = "cfd-reveal" + (resp && resp.ok ? " done" : "");
+      setTimeout(() => {
+        b.textContent = "Show in folder";
+        b.className = "cfd-reveal";
+        b.disabled = false;
+      }, 1800);
+    });
+    return b;
+  }
+
   function card(job, finished) {
     const canPlay = finished && job.status === "done" && job.rel_path;
     const c = el("div", "cfd-card" + (finished ? " " + job.status : "")
@@ -220,14 +248,20 @@
       c.title = "Play";
       c.addEventListener("click", () => play(job));
     }
-    c.appendChild(el("div", "cfd-title", job.title || job.url));
+
+    const row = el("div", "cfd-card-row");
+    const main = el("div", "cfd-card-main");
+    row.appendChild(main);
+    if (canPlay) row.appendChild(revealButton(job));
+    c.appendChild(row);
+    main.appendChild(el("div", "cfd-title", job.title || job.url));
 
     if (!finished) {
       const bar = el("div", "cfd-bar");
       const fill = el("div", "cfd-fill" + (job.status === "converting" ? " converting" : ""));
       fill.style.width = `${Math.max(2, job.percent || 0)}%`;
       bar.appendChild(fill);
-      c.appendChild(bar);
+      main.appendChild(bar);
     }
 
     const bits = [];
@@ -252,7 +286,7 @@
     }
     const meta = el("div", "cfd-meta");
     for (const b of bits) meta.appendChild(el("span", null, b));
-    c.appendChild(meta);
+    main.appendChild(meta);
     return c;
   }
 

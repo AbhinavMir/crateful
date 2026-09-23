@@ -119,7 +119,7 @@ The extension replaces the page at `cratefulapp.com` (and `crateful.com`) with a
 
 The page never talks to the helper. The content script asks the extension's background worker, and only the worker holds the helper's address. So the site stays outside the helper's origin allowlist, and a script on that site cannot reach your library.
 
-Search the page to find anything you have downloaded, and filter to audio or video. Click any finished download to play it on the page. Audio gets an audio player, video gets a video player, and seeking works.
+Search the page to find anything you have downloaded, and filter to audio or video. Click any finished download to play it on the page, or use its Show in folder button to reveal the file in Finder. Audio gets an audio player, video gets a video player, and seeking works.
 
 Playback needs no change to the origin allowlist. A media element asks for the file without an `Origin` header, which the helper serves; a script on the page that tries to fetch the same URL still gets a 403.
 

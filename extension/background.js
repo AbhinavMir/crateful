@@ -130,6 +130,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "crateful-reveal") {
+    const url = `http://127.0.0.1:7531/reveal?root=${encodeURIComponent(msg.root)}`
+      + `&path=${encodeURIComponent(msg.path)}`;
+    fetch(url, { method: "POST" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+      .then(() => sendResponse({ ok: true }))
+      .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+
   if (msg.type === "open-settings") {
     chrome.tabs.create({ url: chrome.runtime.getURL("settings.html") });
     return;
