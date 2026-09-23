@@ -125,6 +125,8 @@ The page remembers how far you got. It saves your position every five seconds, o
 
 Playback needs no change to the origin allowlist. A media element asks for the file without an `Origin` header, which the helper serves; a script on the page that tries to fetch the same URL still gets a 403.
 
+A Settings button on the page edits the library folders, the AI provider, model and key, and the browser to take cookies from. It writes through the same background worker, which accepts only a fixed list of helper paths. The extension's own settings page still holds the categorisation prompt and the button's look.
+
 `GET /progress` returns the same data for any other use.
 
 ## Security

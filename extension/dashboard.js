@@ -65,6 +65,45 @@
     .cfd-card.failed .cfd-title { color: #f5a3a3; }
     .cfd-empty { color: #6e6e73; font-size: 14px; padding: 6px 0 0; }
     .cfd-foot { margin-top: 40px; font-size: 12px; color: #55555a; }
+    .cfd-gear {
+      margin-left: auto; background: #18181b; border: 1px solid #27272b;
+      border-radius: 9px; color: #9a9aa0; padding: 9px 14px;
+      font: inherit; font-size: 13px; cursor: pointer;
+    }
+    .cfd-gear:hover { color: #ededed; border-color: #3d3d43; }
+    .cfd-gear.on { background: #2a1f1f; border-color: #5a2f2b; color: #f0b4b0; }
+    .cfd-panel {
+      background: #18181b; border: 1px solid #27272b; border-radius: 12px;
+      padding: 18px; margin-bottom: 18px;
+    }
+    .cfd-field { margin-bottom: 16px; }
+    .cfd-field:last-child { margin-bottom: 0; }
+    .cfd-label {
+      display: block; font-size: 12.5px; color: #9a9aa0; margin-bottom: 6px;
+    }
+    .cfd-input, .cfd-select {
+      width: 100%; padding: 9px 11px; background: #101012;
+      border: 1px solid #2c2c31; border-radius: 8px;
+      color: #ededed; font: inherit; font-size: 13.5px; outline: none;
+    }
+    .cfd-input:focus, .cfd-select:focus { border-color: #3d3d43; }
+    .cfd-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .cfd-row > * { flex: 1; min-width: 180px; }
+    .cfd-save {
+      background: #B42318; border: none; border-radius: 8px; color: #fff;
+      padding: 10px 20px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    }
+    .cfd-save:hover { background: #8f1c13; }
+    .cfd-save:disabled { opacity: 0.6; cursor: default; }
+    .cfd-note { font-size: 12.5px; color: #8b8b8f; margin-top: 10px; }
+    .cfd-note.ok { color: #8fd48f; }
+    .cfd-note.err { color: #f5a3a3; }
+    .cfd-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .cfd-preset {
+      background: #101012; border: 1px solid #2c2c31; border-radius: 999px;
+      color: #9a9aa0; padding: 6px 13px; font: inherit; font-size: 12.5px; cursor: pointer;
+    }
+    .cfd-preset:hover { color: #ededed; border-color: #3d3d43; }
     .cfd-card-row { display: flex; align-items: center; gap: 14px; }
     .cfd-card-main { flex: 1; min-width: 0; }
     .cfd-reveal {
@@ -157,6 +196,13 @@
     const dot = el("span", "cfd-dot");
     const stateText = el("span", null, "Connecting…");
     state.append(dot, stateText);
+    const gear = el("button", "cfd-gear", "Settings");
+    gear.addEventListener("click", () => toggleSettings(gear));
+    top.appendChild(gear);
+
+    const panel = el("div", "cfd-panel");
+    panel.hidden = true;
+
     const tools = el("div", "cfd-tools");
     const search = el("input", "cfd-search");
     search.type = "search";
@@ -177,10 +223,10 @@
     const player = el("div", "cfd-player");
     player.hidden = true;
     const foot = el("div", "cfd-foot", "This page is drawn by the Crateful extension.");
-    wrap.append(top, sub, state, tools, list, player, foot);
+    wrap.append(top, sub, state, panel, tools, list, player, foot);
     body.append(wrap);
     document.documentElement.append(head, body);
-    return { dot, stateText, list, player };
+    return { dot, stateText, list, player, panel, gear };
   }
 
   let playing = null;
@@ -202,6 +248,127 @@
 
   function fileUrl(job) {
     return `${HELPER}/file?root=${encodeURIComponent(job.kind)}&path=${encodeURIComponent(job.rel_path)}`;
+  }
+
+  async function api(method, path, body) {
+    try {
+      return await chrome.runtime.sendMessage({ type: "crateful-api", method, path, body });
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  function field(labelText, node) {
+    const f = el("div", "cfd-field");
+    f.appendChild(el("label", "cfd-label", labelText));
+    f.appendChild(node);
+    return f;
+  }
+
+  function input(value, placeholder) {
+    const n = el("input", "cfd-input");
+    n.type = "text";
+    n.value = value || "";
+    if (placeholder) n.placeholder = placeholder;
+    return n;
+  }
+
+  async function buildSettings() {
+    const panel = ui.panel;
+    panel.replaceChildren(el("div", "cfd-empty", "Loading settings…"));
+
+    const [cfgResp, presetResp] = await Promise.all([
+      api("GET", "/config"),
+      api("GET", "/path-presets"),
+    ]);
+    if (!cfgResp || !cfgResp.ok) {
+      panel.replaceChildren(el("div", "cfd-empty", "Helper not running."));
+      return;
+    }
+    const cfg = cfgResp.data;
+    const presets = (presetResp && presetResp.ok && presetResp.data.presets) || [];
+
+    panel.replaceChildren();
+
+    const audio = input(cfg.audio_root, "~/YTD_DJ");
+    const video = input(cfg.video_root, "~/YTD_DJ_Video");
+    if (presets.length) {
+      const row = el("div", "cfd-presets");
+      for (const p of presets) {
+        const b = el("button", "cfd-preset", p.label);
+        b.addEventListener("click", () => { audio.value = p.audio; video.value = p.video; });
+        row.appendChild(b);
+      }
+      panel.appendChild(field("Quick destinations", row));
+    }
+    const roots = el("div", "cfd-row");
+    roots.append(audio, video);
+    panel.appendChild(field("Library folders (audio, video)", roots));
+
+    const provider = el("select", "cfd-select");
+    for (const name of cfg.supported_providers || ["anthropic"]) {
+      const o = el("option", null, name === "anthropic" ? "Anthropic (Claude)"
+        : name === "openai" ? "OpenAI" : name === "ollama" ? "Ollama (local)" : name);
+      o.value = name;
+      if (name === cfg.provider) o.selected = true;
+      provider.appendChild(o);
+    }
+    const model = input(cfg.model, "");
+    const ai = el("div", "cfd-row");
+    ai.append(provider, model);
+    panel.appendChild(field("AI filing (provider, model)", ai));
+
+    const key = el("input", "cfd-input");
+    key.type = "password";
+    key.placeholder = cfg.has_anthropic_key || cfg.has_openai_key
+      ? "A key is set. Type a new one to replace it."
+      : "No key set. Downloads go to unsorted/general.";
+    panel.appendChild(field("API key", key));
+
+    const cookies = el("select", "cfd-select");
+    for (const name of ["", ...(cfg.supported_cookie_browsers || [])]) {
+      const o = el("option", null, name ? name.charAt(0).toUpperCase() + name.slice(1) : "Off");
+      o.value = name;
+      if (name === (cfg.cookies_from_browser || "")) o.selected = true;
+      cookies.appendChild(o);
+    }
+    panel.appendChild(field("Use cookies from browser, if YouTube asks you to sign in", cookies));
+
+    const save = el("button", "cfd-save", "Save");
+    const note = el("div", "cfd-note");
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      note.className = "cfd-note";
+      note.textContent = "Saving…";
+      const body = {
+        audio_root: audio.value.trim() || null,
+        video_root: video.value.trim() || null,
+        provider: provider.value,
+        model: model.value.trim() || null,
+        cookies_from_browser: cookies.value || "",
+      };
+      const typed = key.value.trim();
+      if (typed) {
+        body[provider.value === "openai" ? "openai_api_key" : "anthropic_api_key"] = typed;
+      }
+      const r = await api("PUT", "/config", body);
+      note.className = "cfd-note " + (r && r.ok ? "ok" : "err");
+      note.textContent = r && r.ok
+        ? "Saved."
+        : `Could not save: ${(r && r.data && r.data.detail) || (r && r.error) || "unknown error"}`;
+      key.value = "";
+      save.disabled = false;
+    });
+    const foot = el("div", "cfd-field");
+    foot.append(save, note);
+    panel.appendChild(foot);
+  }
+
+  function toggleSettings(gear) {
+    const showing = ui.panel.hidden;
+    ui.panel.hidden = !showing;
+    gear.classList.toggle("on", showing);
+    if (showing) buildSettings();
   }
 
   function stop() {

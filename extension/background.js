@@ -130,6 +130,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "crateful-api") {
+    const allowed = {
+      GET: ["/config", "/path-presets", "/status"],
+      PUT: ["/config"],
+      POST: ["/test-key"],
+    };
+    const method = msg.method || "GET";
+    if (!(allowed[method] || []).includes(msg.path)) {
+      sendResponse({ ok: false, error: "Not allowed" });
+      return true;
+    }
+    fetch(`http://127.0.0.1:7531${msg.path}`, {
+      method,
+      cache: "no-store",
+      headers: msg.body ? { "Content-Type": "application/json" } : undefined,
+      body: msg.body ? JSON.stringify(msg.body) : undefined,
+    })
+      .then(async (r) => sendResponse({ ok: r.ok, status: r.status, data: await r.json() }))
+      .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+
   if (msg.type === "crateful-position") {
     fetch("http://127.0.0.1:7531/db/position", {
       method: "POST",
