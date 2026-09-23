@@ -72,7 +72,16 @@
       position: sticky; bottom: 0; margin-top: 28px; padding: 14px 16px;
       background: #18181b; border: 1px solid #27272b; border-radius: 12px;
     }
-    .cfd-player .cfd-title { margin-bottom: 10px; }
+    .cfd-player-top {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+    }
+    .cfd-player-top .cfd-title { margin-bottom: 0; flex: 1; min-width: 0; }
+    .cfd-close {
+      flex: none; width: 34px; height: 34px; line-height: 1;
+      background: #24242a; border: 1px solid #34343a; border-radius: 9px;
+      color: #c9c9ce; font: inherit; font-size: 20px; cursor: pointer;
+    }
+    .cfd-close:hover { background: #3a2626; border-color: #5a2f2b; color: #ffb4ae; }
     .cfd-player audio, .cfd-player video { width: 100%; display: block; }
     .cfd-player video { max-height: 320px; border-radius: 8px; background: #000; }
   `;
@@ -172,11 +181,27 @@
     return `${HELPER}/file?root=${encodeURIComponent(job.kind)}&path=${encodeURIComponent(job.rel_path)}`;
   }
 
+  function stop() {
+    const media = ui.player.querySelector("audio, video");
+    if (media) { media.pause(); media.removeAttribute("src"); media.load(); }
+    ui.player.replaceChildren();
+    ui.player.hidden = true;
+    playing = null;
+    render(lastData);
+  }
+
   function play(job) {
     playing = job.rel_path;
     ui.player.hidden = false;
     ui.player.replaceChildren();
-    ui.player.appendChild(el("div", "cfd-title", job.title || job.rel_path));
+    const bar = el("div", "cfd-player-top");
+    bar.appendChild(el("div", "cfd-title", job.title || job.rel_path));
+    const close = el("button", "cfd-close", "\u00d7");
+    close.title = "Close the player";
+    close.setAttribute("aria-label", "Close the player");
+    close.addEventListener("click", stop);
+    bar.appendChild(close);
+    ui.player.appendChild(bar);
     const media = el(job.kind === "video" ? "video" : "audio");
     media.controls = true;
     media.autoplay = true;
