@@ -677,15 +677,58 @@ def make_postprocessor_hook(job_id: str):
     return hook
 
 
+def recent_downloads(limit: int = 12) -> list[dict]:
+    try:
+        with closing(db_connect()) as conn:
+            rows = conn.execute(
+                "SELECT root, rel_path, title, artist, added_at FROM files "
+                "ORDER BY added_at DESC LIMIT ?",
+                (limit * 3,),
+            ).fetchall()
+    except sqlite3.Error as e:
+        print(f"recent_downloads query failed (non-fatal): {e}", file=sys.stderr)
+        return []
+    out = []
+    for r in rows:
+        try:
+            if not (root_for(r["root"]) / r["rel_path"]).is_file():
+                continue
+        except HTTPException:
+            continue
+        out.append({
+            "id": f"db:{r['root']}:{r['rel_path']}",
+            "url": None,
+            "kind": r["root"],
+            "title": r["title"] or Path(r["rel_path"]).stem,
+            "status": "done",
+            "percent": 100.0,
+            "downloaded_bytes": 0,
+            "total_bytes": None,
+            "speed": None,
+            "eta": None,
+            "folder": str(Path(r["rel_path"]).parent),
+            "rel_path": r["rel_path"],
+            "error": None,
+            "started_at": r["added_at"],
+            "finished_at": r["added_at"],
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 @app.get("/progress")
 def progress():
     with JOBS_LOCK:
-        jobs = sorted(JOBS.values(), key=lambda j: j["started_at"], reverse=True)
-        jobs = [dict(j) for j in jobs]
-    active = [j for j in jobs if not j["finished_at"]]
+        jobs = [dict(j) for j in JOBS.values()]
+    active = sorted([j for j in jobs if not j["finished_at"]],
+                    key=lambda j: j["started_at"], reverse=True)
+    failed = [j for j in jobs if j["finished_at"] and j["status"] != "done"]
+    recent = failed + recent_downloads()
+    recent.sort(key=lambda j: j["finished_at"] or 0, reverse=True)
     return {
         "active": active,
-        "recent": [j for j in jobs if j["finished_at"]],
+        "recent": recent[:12],
         "active_count": len(active),
     }
 

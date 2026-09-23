@@ -27,7 +27,10 @@ async function reinjectContentScript() {
     if (await hasLiveContentScript(tab.id)) continue;
     try {
       await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["content.css"] });
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["button-style.js", "content.js"],
+      });
     } catch (e) {
       console.warn("[Crateful] re-inject failed for tab", tab.id, e);
     }
