@@ -31,8 +31,11 @@ audio into AI-categorized folders.
   reported as broken, with the fix.
 
 - `/progress` reports live download state from yt-dlp progress hooks. The
-  extension replaces `crateful.com` with a dashboard that polls it through the
+  extension replaces `cratefulapp.com` with a dashboard that polls it through the
   background worker, so the site itself never reaches the helper.
+
+- `site/` is the landing page: one HTML file served by Caddy on Railway, live at
+  cratefulapp.com.
 
 ## Later
 

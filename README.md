@@ -113,11 +113,11 @@ Playback state lives in SQLite at `~/.ytd_dj/library.db`. It records position, c
 
 Change the provider, the model, and the categorization prompt on the Settings page. Edit the prompt if the model keeps choosing folders you do not want.
 
-## Live progress on crateful.com
+## Live progress on cratefulapp.com
 
-The extension replaces the page at `crateful.com` with a live view of what this machine downloads: each file in progress with a bar, size, speed and time left, then the recent ones with where they landed. It refreshes every second.
+The extension replaces the page at `cratefulapp.com` (and `crateful.com`) with a live view of what this machine downloads: each file in progress with a bar, size, speed and time left, then the recent ones with where they landed. It refreshes every second.
 
-The page never talks to the helper. The content script asks the extension's background worker, and only the worker holds the helper's address. So `crateful.com` stays outside the helper's origin allowlist, and a script on that site cannot reach your library.
+The page never talks to the helper. The content script asks the extension's background worker, and only the worker holds the helper's address. So the site stays outside the helper's origin allowlist, and a script on that site cannot reach your library.
 
 `GET /progress` returns the same data for any other use.
 

@@ -15,6 +15,8 @@
     "*://www.youtube.com/*",
     "*://crateful.com/*",
     "*://www.crateful.com/*",
+    "*://cratefulapp.com/*",
+    "*://www.cratefulapp.com/*",
     "https://raw.githubusercontent.com/*"
   ],
   "content_scripts": [
@@ -30,7 +32,9 @@
     {
       "matches": [
         "*://crateful.com/*",
-        "*://www.crateful.com/*"
+        "*://www.crateful.com/*",
+        "*://cratefulapp.com/*",
+        "*://www.cratefulapp.com/*"
       ],
       "js": ["dashboard.js"],
       "run_at": "document_start",
@@ -40,7 +44,7 @@
   "web_accessible_resources": [
     {
       "resources": ["icons/icon-32.png", "icons/icon-128.png"],
-      "matches": ["*://www.youtube.com/*", "*://crateful.com/*", "*://www.crateful.com/*"]
+      "matches": ["*://www.youtube.com/*", "*://crateful.com/*", "*://www.crateful.com/*", "*://cratefulapp.com/*", "*://www.cratefulapp.com/*"]
     }
   ],
   "background": {
