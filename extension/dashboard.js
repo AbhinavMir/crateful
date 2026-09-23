@@ -52,7 +52,19 @@
     .cfd-card.failed .cfd-title { color: #f5a3a3; }
     .cfd-empty { color: #6e6e73; font-size: 14px; padding: 6px 0 0; }
     .cfd-foot { margin-top: 40px; font-size: 12px; color: #55555a; }
+    .cfd-card.playable { cursor: pointer; }
+    .cfd-card.playable:hover { border-color: #3d3d43; background: #1d1d21; }
+    .cfd-card.playing { border-color: #B42318; }
+    .cfd-player {
+      position: sticky; bottom: 0; margin-top: 28px; padding: 14px 16px;
+      background: #18181b; border: 1px solid #27272b; border-radius: 12px;
+    }
+    .cfd-player .cfd-title { margin-bottom: 10px; }
+    .cfd-player audio, .cfd-player video { width: 100%; display: block; }
+    .cfd-player video { max-height: 320px; border-radius: 8px; background: #000; }
   `;
+
+  const HELPER = "http://127.0.0.1:7531";
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -103,13 +115,17 @@
     const stateText = el("span", null, "Connecting…");
     state.append(dot, stateText);
     const list = el("div");
+    const player = el("div", "cfd-player");
+    player.hidden = true;
     const foot = el("div", "cfd-foot", "This page is drawn by the Crateful extension.");
-    wrap.append(top, sub, state, list, foot);
+    wrap.append(top, sub, state, list, player, foot);
     body.append(wrap);
     document.documentElement.append(head, body);
-    return { dot, stateText, list };
+    return { dot, stateText, list, player };
   }
 
+  let playing = null;
+  let lastData = null;
   let ui = build();
 
   function reassert() {
@@ -121,8 +137,33 @@
   document.addEventListener("DOMContentLoaded", reassert);
   window.addEventListener("load", reassert);
 
+  function fileUrl(job) {
+    return `${HELPER}/file?root=${encodeURIComponent(job.kind)}&path=${encodeURIComponent(job.rel_path)}`;
+  }
+
+  function play(job) {
+    playing = job.rel_path;
+    ui.player.hidden = false;
+    ui.player.replaceChildren();
+    ui.player.appendChild(el("div", "cfd-title", job.title || job.rel_path));
+    const media = el(job.kind === "video" ? "video" : "audio");
+    media.controls = true;
+    media.autoplay = true;
+    media.src = fileUrl(job);
+    ui.player.appendChild(media);
+    media.play().catch(() => {});
+    render(lastData);
+  }
+
   function card(job, finished) {
-    const c = el("div", "cfd-card" + (finished ? " " + job.status : ""));
+    const canPlay = finished && job.status === "done" && job.rel_path;
+    const c = el("div", "cfd-card" + (finished ? " " + job.status : "")
+      + (canPlay ? " playable" : "")
+      + (canPlay && job.rel_path === playing ? " playing" : ""));
+    if (canPlay) {
+      c.title = "Play";
+      c.addEventListener("click", () => play(job));
+    }
     c.appendChild(el("div", "cfd-title", job.title || job.url));
 
     if (!finished) {
@@ -160,6 +201,8 @@
   }
 
   function render(data) {
+    if (!data) return;
+    lastData = data;
     const { active, recent } = data;
     ui.dot.className = "cfd-dot live";
     ui.stateText.textContent = active.length
@@ -181,6 +224,7 @@
   }
 
   function offline(reason) {
+    lastData = null;
     ui.dot.className = "cfd-dot off";
     ui.stateText.textContent = "Helper not running";
     ui.list.replaceChildren();
