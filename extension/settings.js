@@ -226,11 +226,11 @@ const PRESET_LABELS = {
   dark: "Dark",
 };
 
-let buttonStyle = { ...CF_DEFAULT_STYLE };
+let buttonStyle = { ...globalThis.CF_DEFAULT_STYLE };
 
 function paintPreview() {
   const wrap = $("btn-preview");
-  cfApplyStyle(wrap, buttonStyle);
+  globalThis.cfApplyStyle(wrap, buttonStyle);
   const main = $("preview-main");
   main.replaceChildren();
   if (buttonStyle.icon) {
@@ -261,9 +261,9 @@ function fillButtonInputs() {
 
 async function commitButtonStyle({ custom = true } = {}) {
   if (custom) buttonStyle.preset = "custom";
-  buttonStyle = cfNormalizeStyle({ ...buttonStyle, preset: buttonStyle.preset });
+  buttonStyle = globalThis.cfNormalizeStyle({ ...buttonStyle, preset: buttonStyle.preset });
   paintPreview();
-  await cfSaveStyle(buttonStyle);
+  await globalThis.cfSaveStyle(buttonStyle);
   const st = $("btn-status");
   st.textContent = "Saved.";
   st.className = "muted ok";
@@ -279,7 +279,7 @@ function wireButtonCustomiser() {
     b.dataset.preset = name;
     b.textContent = label;
     b.addEventListener("click", async () => {
-      buttonStyle = cfNormalizeStyle({ preset: name });
+      buttonStyle = globalThis.cfNormalizeStyle({ preset: name });
       fillButtonInputs();
       await commitButtonStyle({ custom: false });
     });
@@ -318,14 +318,14 @@ function wireButtonCustomiser() {
   });
 
   $("btn-reset").addEventListener("click", async () => {
-    buttonStyle = { ...CF_DEFAULT_STYLE };
+    buttonStyle = { ...globalThis.CF_DEFAULT_STYLE };
     fillButtonInputs();
     await commitButtonStyle({ custom: false });
   });
 }
 
 async function loadButtonStyle() {
-  buttonStyle = await cfLoadStyle();
+  buttonStyle = await globalThis.cfLoadStyle();
   fillButtonInputs();
   paintPreview();
 }

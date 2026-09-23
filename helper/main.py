@@ -718,17 +718,17 @@ def recent_downloads(limit: int = 12) -> list[dict]:
 
 
 @app.get("/progress")
-def progress():
+def progress(limit: int = Query(60, ge=1, le=500)):
     with JOBS_LOCK:
         jobs = [dict(j) for j in JOBS.values()]
     active = sorted([j for j in jobs if not j["finished_at"]],
                     key=lambda j: j["started_at"], reverse=True)
     failed = [j for j in jobs if j["finished_at"] and j["status"] != "done"]
-    recent = failed + recent_downloads()
+    recent = failed + recent_downloads(limit)
     recent.sort(key=lambda j: j["finished_at"] or 0, reverse=True)
     return {
         "active": active,
-        "recent": recent[:12],
+        "recent": recent[:limit],
         "active_count": len(active),
     }
 

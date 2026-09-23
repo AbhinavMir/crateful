@@ -16,7 +16,7 @@
   let wrapEl = null;
   let mainBtn = null;
   let caretBtn = null;
-  let style = { ...CF_DEFAULT_STYLE };
+  let style = { ...globalThis.CF_DEFAULT_STYLE };
   let playlistPromise = null;
 
   let running = null;
@@ -451,7 +451,7 @@
 
     wrapEl = el("span");
     wrapEl.id = WRAP_ID;
-    cfApplyStyle(wrapEl, style);
+    globalThis.cfApplyStyle(wrapEl, style);
 
     mainBtn = el("button", "cf-btn cf-main");
     mainBtn.addEventListener("click", (e) => {
@@ -486,9 +486,9 @@
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes[CF_STYLE_KEY]) return;
-    style = cfNormalizeStyle(changes[CF_STYLE_KEY].newValue);
-    if (wrapEl) { cfApplyStyle(wrapEl, style); setIdle(); }
+    if (area !== "local" || !changes[globalThis.CF_STYLE_KEY]) return;
+    style = globalThis.cfNormalizeStyle(changes[globalThis.CF_STYLE_KEY].newValue);
+    if (wrapEl) { globalThis.cfApplyStyle(wrapEl, style); setIdle(); }
   });
 
   let lastUrl = location.href;
@@ -506,9 +506,9 @@
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  cfLoadStyle().then((s) => {
+  globalThis.cfLoadStyle().then((s) => {
     style = s;
-    if (wrapEl) { cfApplyStyle(wrapEl, style); setIdle(); }
+    if (wrapEl) { globalThis.cfApplyStyle(wrapEl, style); setIdle(); }
   });
 
   setTimeout(injectButtons, 800);

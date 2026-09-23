@@ -24,6 +24,19 @@
     .cfd-dot { width: 9px; height: 9px; border-radius: 50%; background: #444; flex: none; }
     .cfd-dot.live { background: #3fb950; box-shadow: 0 0 0 4px rgba(63,185,80,0.16); }
     .cfd-dot.off { background: #f0883e; }
+    .cfd-tools { display: flex; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+    .cfd-search {
+      flex: 1; min-width: 180px; padding: 9px 12px;
+      background: #18181b; border: 1px solid #27272b; border-radius: 9px;
+      color: #ededed; font: inherit; font-size: 14px; outline: none;
+    }
+    .cfd-search:focus { border-color: #3d3d43; }
+    .cfd-chip {
+      background: #18181b; border: 1px solid #27272b; border-radius: 999px;
+      color: #9a9aa0; padding: 8px 14px; font: inherit; font-size: 13px; cursor: pointer;
+    }
+    .cfd-chip:hover { color: #ededed; border-color: #3d3d43; }
+    .cfd-chip.on { background: #2a1f1f; border-color: #5a2f2b; color: #f0b4b0; }
     .cfd-head {
       font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
       text-transform: uppercase; color: #6e6e73; margin: 28px 0 10px;
@@ -114,11 +127,27 @@
     const dot = el("span", "cfd-dot");
     const stateText = el("span", null, "Connecting…");
     state.append(dot, stateText);
+    const tools = el("div", "cfd-tools");
+    const search = el("input", "cfd-search");
+    search.type = "search";
+    search.placeholder = "Search downloads…";
+    search.addEventListener("input", () => { query = search.value; render(lastData); });
+    tools.appendChild(search);
+    for (const [key, label] of [["all", "All"], ["audio", "Audio"], ["video", "Video"]]) {
+      const b = el("button", "cfd-chip" + (kindFilter === key ? " on" : ""), label);
+      b.addEventListener("click", () => {
+        kindFilter = key;
+        tools.querySelectorAll(".cfd-chip").forEach((x) => x.classList.remove("on"));
+        b.classList.add("on");
+        render(lastData);
+      });
+      tools.appendChild(b);
+    }
     const list = el("div");
     const player = el("div", "cfd-player");
     player.hidden = true;
     const foot = el("div", "cfd-foot", "This page is drawn by the Crateful extension.");
-    wrap.append(top, sub, state, list, player, foot);
+    wrap.append(top, sub, state, tools, list, player, foot);
     body.append(wrap);
     document.documentElement.append(head, body);
     return { dot, stateText, list, player };
@@ -126,6 +155,8 @@
 
   let playing = null;
   let lastData = null;
+  let query = "";
+  let kindFilter = "all";
   let ui = build();
 
   function reassert() {
@@ -200,13 +231,24 @@
     return c;
   }
 
+  function matches(job) {
+    if (kindFilter !== "all" && job.kind !== kindFilter) return false;
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return [job.title, job.rel_path, job.folder]
+      .some((v) => v && String(v).toLowerCase().includes(q));
+  }
+
   function render(data) {
     if (!data) return;
     lastData = data;
-    const { active, recent } = data;
+    const active = data.active.filter(matches);
+    const recent = data.recent.filter(matches);
+    const filtering = query.trim() || kindFilter !== "all";
+
     ui.dot.className = "cfd-dot live";
-    ui.stateText.textContent = active.length
-      ? `${active.length} ${active.length === 1 ? "download" : "downloads"} in progress`
+    ui.stateText.textContent = data.active.length
+      ? `${data.active.length} ${data.active.length === 1 ? "download" : "downloads"} in progress`
       : "Nothing downloading";
 
     ui.list.replaceChildren();
@@ -216,10 +258,12 @@
     }
     if (recent.length) {
       ui.list.appendChild(el("div", "cfd-head", "Recent"));
-      for (const j of recent.slice(0, 10)) ui.list.appendChild(card(j, true));
+      for (const j of recent) ui.list.appendChild(card(j, true));
     }
     if (!active.length && !recent.length) {
-      ui.list.appendChild(el("div", "cfd-empty", "No downloads yet. Hit Download on a YouTube page."));
+      ui.list.appendChild(el("div", "cfd-empty", filtering
+        ? "Nothing matches that."
+        : "No downloads yet. Hit Download on a YouTube page."));
     }
   }
 
