@@ -131,7 +131,7 @@
   function reassert() {
     if (!document.getElementById("crateful-dashboard")) {
       ui = build();
-      poll();
+      tick();
     }
   }
   document.addEventListener("DOMContentLoaded", reassert);
@@ -241,6 +241,24 @@
     }
   }
 
-  poll();
-  setInterval(poll, 1000);
+  let timer = null;
+
+  function schedule() {
+    clearTimeout(timer);
+    if (document.hidden) return;
+    const busy = lastData && lastData.active.length;
+    timer = setTimeout(tick, busy ? 1000 : 5000);
+  }
+
+  async function tick() {
+    await poll();
+    schedule();
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) tick();
+    else clearTimeout(timer);
+  });
+
+  tick();
 })();
