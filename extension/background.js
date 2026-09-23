@@ -130,6 +130,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "crateful-position") {
+    fetch("http://127.0.0.1:7531/db/position", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        root: msg.root, path: msg.path,
+        position_sec: msg.position, duration_sec: msg.duration,
+      }),
+    })
+      .then((r) => sendResponse({ ok: r.ok }))
+      .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+
+  if (msg.type === "crateful-completed") {
+    fetch("http://127.0.0.1:7531/db/completed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ root: msg.root, path: msg.path, completed: true }),
+    })
+      .then((r) => sendResponse({ ok: r.ok }))
+      .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+
   if (msg.type === "crateful-reveal") {
     const url = `http://127.0.0.1:7531/reveal?root=${encodeURIComponent(msg.root)}`
       + `&path=${encodeURIComponent(msg.path)}`;

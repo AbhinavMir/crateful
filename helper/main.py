@@ -681,8 +681,10 @@ def recent_downloads(limit: int = 12) -> list[dict]:
     try:
         with closing(db_connect()) as conn:
             rows = conn.execute(
-                "SELECT root, rel_path, title, artist, added_at FROM files "
-                "ORDER BY added_at DESC LIMIT ?",
+                "SELECT f.root, f.rel_path, f.title, f.artist, f.added_at, f.duration_sec, "
+                "       p.position_sec, p.completed "
+                "FROM files f LEFT JOIN playback p ON p.file_id = f.id "
+                "ORDER BY f.added_at DESC LIMIT ?",
                 (limit * 3,),
             ).fetchall()
     except sqlite3.Error as e:
@@ -711,6 +713,9 @@ def recent_downloads(limit: int = 12) -> list[dict]:
             "error": None,
             "started_at": r["added_at"],
             "finished_at": r["added_at"],
+            "position_sec": r["position_sec"] or 0,
+            "duration_sec": r["duration_sec"],
+            "completed": bool(r["completed"]),
         })
         if len(out) >= limit:
             break

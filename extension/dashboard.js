@@ -77,6 +77,11 @@
     .cfd-card.playable { cursor: pointer; }
     .cfd-card.playable:hover { border-color: #3d3d43; background: #1d1d21; }
     .cfd-card.playing { border-color: #B42318; }
+    .cfd-seen {
+      height: 3px; background: #2a2a2e; border-radius: 999px;
+      margin-top: 9px; overflow: hidden;
+    }
+    .cfd-seen span { display: block; height: 100%; background: #4a7a4d; border-radius: 999px; }
     .cfd-player {
       position: sticky; bottom: 0; margin-top: 28px; padding: 14px 16px;
       background: #18181b; border: 1px solid #27272b; border-radius: 12px;
@@ -110,6 +115,13 @@
     let i = 0;
     while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
     return `${n < 10 ? n.toFixed(1) : Math.round(n)} ${u[i]}`;
+  }
+
+  function fmtClock(s) {
+    s = Math.floor(s || 0);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    const mm = String(m).padStart(h ? 2 : 1, "0");
+    return h ? `${h}:${mm}:${String(r).padStart(2, "0")}` : `${mm}:${String(r).padStart(2, "0")}`;
   }
 
   function fmtEta(s) {
@@ -172,6 +184,8 @@
   }
 
   let playing = null;
+  let playingJob = null;
+  let saveTimer = null;
   let lastData = null;
   let query = "";
   let kindFilter = "all";
@@ -192,15 +206,39 @@
 
   function stop() {
     const media = ui.player.querySelector("audio, video");
-    if (media) { media.pause(); media.removeAttribute("src"); media.load(); }
+    clearInterval(saveTimer);
+    if (media) {
+      if (playingJob) saveProgress(playingJob, media, false);
+      media.pause();
+      media.removeAttribute("src");
+      media.load();
+    }
+    playingJob = null;
     ui.player.replaceChildren();
     ui.player.hidden = true;
     playing = null;
     render(lastData);
   }
 
+  function saveProgress(job, media, done) {
+    if (!media || !isFinite(media.currentTime)) return;
+    chrome.runtime.sendMessage({
+      type: "crateful-position",
+      root: job.kind,
+      path: job.rel_path,
+      position: done ? 0 : media.currentTime,
+      duration: isFinite(media.duration) ? media.duration : null,
+    }).catch(() => {});
+    if (done) {
+      chrome.runtime.sendMessage({
+        type: "crateful-completed", root: job.kind, path: job.rel_path,
+      }).catch(() => {});
+    }
+  }
+
   function play(job) {
     playing = job.rel_path;
+    playingJob = job;
     ui.player.hidden = false;
     ui.player.replaceChildren();
     const bar = el("div", "cfd-player-top");
@@ -216,6 +254,21 @@
     media.autoplay = true;
     media.src = fileUrl(job);
     ui.player.appendChild(media);
+
+    const resumeAt = job.completed ? 0 : (job.position_sec || 0);
+    if (resumeAt > 5) {
+      media.addEventListener("loadedmetadata", () => {
+        if (resumeAt < (media.duration || 0) - 5) media.currentTime = resumeAt;
+      }, { once: true });
+    }
+
+    clearInterval(saveTimer);
+    saveTimer = setInterval(() => {
+      if (!media.paused) saveProgress(job, media, false);
+    }, 5000);
+    media.addEventListener("pause", () => saveProgress(job, media, false));
+    media.addEventListener("ended", () => saveProgress(job, media, true));
+
     media.play().catch(() => {});
     render(lastData);
   }
@@ -269,6 +322,11 @@
       bits.push(job.status === "done" ? "Saved" : "Failed");
       if (job.rel_path) bits.push(job.rel_path);
       if (job.error) bits.push(job.error);
+      if (job.duration_sec && job.position_sec > 5 && !job.completed) {
+        bits.push(`${fmtClock(job.position_sec)} of ${fmtClock(job.duration_sec)} watched`);
+      } else if (job.completed) {
+        bits.push("Watched");
+      }
     } else if (job.status === "converting") {
       bits.push("Converting to " + (job.kind === "video" ? "MP4" : "MP3"));
     } else if (job.status === "starting") {
@@ -287,6 +345,15 @@
     const meta = el("div", "cfd-meta");
     for (const b of bits) meta.appendChild(el("span", null, b));
     main.appendChild(meta);
+
+    if (finished && job.duration_sec && (job.position_sec > 5 || job.completed)) {
+      const seen = el("div", "cfd-seen");
+      const fill = el("span");
+      const pct = job.completed ? 100 : (job.position_sec / job.duration_sec) * 100;
+      fill.style.width = `${Math.max(2, Math.min(100, pct))}%`;
+      seen.appendChild(fill);
+      main.appendChild(seen);
+    }
     return c;
   }
 
